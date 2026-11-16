@@ -64,6 +64,28 @@ class GeneratorTest {
   }
 
   @Test
+  void failsWhenSpringIsLoadedTwice() throws Exception {
+    var urls =
+        new java.net.URL[] {
+          testClasses().toUri().toURL(),
+          jarOf(org.springframework.web.bind.annotation.RestController.class),
+          jarOf(org.springframework.stereotype.Controller.class),
+          jarOf(org.springframework.core.annotation.AliasFor.class)
+        };
+    var config = new GeneratorConfig(List.of(FIXTURES), output, UnmarkedNullness.NON_NULL);
+
+    try (var isolated = new java.net.URLClassLoader(urls, ClassLoader.getPlatformClassLoader())) {
+      org.assertj.core.api.Assertions.assertThatIllegalStateException()
+          .isThrownBy(() -> Generator.generate(config, List.of(testClasses()), isolated))
+          .withMessageContaining("Spring's annotations were loaded twice");
+    }
+  }
+
+  private static java.net.URL jarOf(Class<?> type) {
+    return type.getProtectionDomain().getCodeSource().getLocation();
+  }
+
+  @Test
   void scannerSkipsAnonymousClassesAndPackageInfo() throws Exception {
     assertThat(ClassScanner.classNames(testClasses(), List.of(FIXTURES)))
         .contains(FIXTURES + ".GreetingController", FIXTURES + ".GreetingController$Greeting")

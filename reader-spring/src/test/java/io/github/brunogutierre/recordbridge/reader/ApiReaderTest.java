@@ -163,7 +163,7 @@ class ApiReaderTest {
   void rejectsMapsOfAllParameters() {
     assertThatThrownBy(() -> read(ControllerFixtures.MapController.class))
         .isInstanceOf(UnsupportedTypeException.class)
-        .hasMessageContaining("declare each parameter");
+        .hasMessageContaining("can't be sent as a query parameter");
   }
 
   @Test

@@ -7,4 +7,5 @@ dependencies {
     api(project(":emitter-ts"))
     implementation(libs.jackson.databind)
     testImplementation(libs.spring.web)
+    testImplementation(libs.spring.context)
 }
