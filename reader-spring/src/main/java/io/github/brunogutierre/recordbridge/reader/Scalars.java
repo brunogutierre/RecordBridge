@@ -5,6 +5,8 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URI;
 import java.net.URL;
+import java.util.Currency;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
@@ -22,6 +24,8 @@ final class Scalars {
           Map.entry(UUID.class, TypeRef.STRING),
           Map.entry(URI.class, TypeRef.STRING),
           Map.entry(URL.class, TypeRef.STRING),
+          Map.entry(Locale.class, TypeRef.STRING),
+          Map.entry(Currency.class, TypeRef.STRING),
           Map.entry(byte[].class, TypeRef.STRING), // Base64
           Map.entry(boolean.class, TypeRef.BOOLEAN),
           Map.entry(Boolean.class, TypeRef.BOOLEAN),

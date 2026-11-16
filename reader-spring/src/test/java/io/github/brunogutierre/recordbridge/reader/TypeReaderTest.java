@@ -33,8 +33,8 @@ class TypeReaderTest {
   }
 
   private TypeRef field(String name) throws NoSuchFieldException {
-    return reader.read(
-        Fixtures.Uses.class.getDeclaredField(name).getAnnotatedType(), "Uses." + name);
+    var field = Fixtures.Uses.class.getDeclaredField(name);
+    return reader.read(field.getAnnotatedType(), field, "Uses." + name);
   }
 
   @Test
@@ -166,7 +166,7 @@ class TypeReaderTest {
   void rejectsUnknownJdkTypesWithTheirLocation() {
     assertThatThrownBy(() -> reader.read(Fixtures.Event.class))
         .isInstanceOf(UnsupportedTypeException.class)
-        .hasMessage("Unsupported JDK type java.time.Instant at Event.at");
+        .hasMessage("Unsupported JDK type java.lang.Thread at Event.at");
   }
 
   @Test
