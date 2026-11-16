@@ -1,8 +1,13 @@
 package io.github.brunogutierre.recordbridge.emitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import io.github.brunogutierre.recordbridge.model.Controller;
+import io.github.brunogutierre.recordbridge.model.Endpoint;
+import io.github.brunogutierre.recordbridge.model.HttpMethod;
+import io.github.brunogutierre.recordbridge.model.Response;
+import io.github.brunogutierre.recordbridge.model.TypeRef;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -38,6 +43,25 @@ class AngularEmitterTest {
         .isEqualTo("order-line.api.ts");
     assertThat(ServiceEmitter.fileName(new Controller("Legacy", List.of())))
         .isEqualTo("legacy.api.ts");
+  }
+
+  @Test
+  void resourceFactoriesOnlyForGetsWithoutBody() {
+    assertThat(files.get("order.api.ts"))
+        .contains("  getResource(", "  listResource(", "  exportResource(")
+        .doesNotContain("createResource", "deleteResource", "noteResource");
+  }
+
+  @Test
+  void rejectsAResourceNameThatClashesWithAnEndpoint() {
+    var get =
+        new Endpoint("get", HttpMethod.GET, "/a", List.of(), new Response.Json(TypeRef.STRING));
+    var getResource = new Endpoint("getResource", HttpMethod.POST, "/b", List.of(), Response.EMPTY);
+
+    assertThatIllegalArgumentException()
+        .isThrownBy(
+            () -> new ServiceEmitter().emit(new Controller("AApi", List.of(get, getResource))))
+        .withMessageContaining("AApi.getResource clashes");
   }
 
   @Test
