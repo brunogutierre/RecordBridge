@@ -153,6 +153,17 @@ class ApiModelTest {
   }
 
   @Test
+  void checksErrorTypes() {
+    var model = new ApiModel(List.of(ORDER), List.of(), List.of(TypeRef.Named.of("Order")));
+
+    assertThat(model.errors()).containsExactly(TypeRef.Named.of("Order"));
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> new ApiModel(List.of(), List.of(), List.of(TypeRef.Named.of("Problem"))))
+        .withMessageContaining("error type refers to unknown type Problem");
+    assertThat(withTypes().errors()).isEmpty();
+  }
+
+  @Test
   void unknownTypeLookupFails() {
     assertThatIllegalArgumentException().isThrownBy(() -> withTypes().type("Order"));
   }

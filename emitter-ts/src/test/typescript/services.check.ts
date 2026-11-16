@@ -2,7 +2,7 @@
 import type { HttpResourceRef } from '@angular/common/http';
 import { signal } from '@angular/core';
 import type { Observable } from 'rxjs';
-import { FileStoreApi, OrderApi, type Order, type Page } from '../resources/golden/angular';
+import { FileStoreApi, OrderApi, apiError, type Order, type Page } from '../resources/golden/angular';
 
 declare const orders: OrderApi;
 declare const files: FileStoreApi;
@@ -39,3 +39,15 @@ export const report: HttpResourceRef<string | undefined> = files.readResource(()
 
 // @ts-expect-error: resource arguments keep their types too.
 orders.getResource(() => ({ id: '1' }));
+
+// Errors come back typed from the API's exception handlers.
+orders.get(1).subscribe({
+  error: (error: unknown) => {
+    const body = apiError(error);
+    if (body !== undefined && 'fields' in body) {
+      const fields: Record<string, string> = body.fields;
+      return fields;
+    }
+    return body?.title;
+  },
+});

@@ -19,7 +19,7 @@ public final class AngularEmitter {
   public Map<String, String> emit(ApiModel model) {
     var files = new LinkedHashMap<String, String>();
     files.put("models.ts", models.emit(model));
-    files.put("api-config.ts", CONFIG);
+    files.put("api-config.ts", config(!model.errors().isEmpty()));
     var index = new StringBuilder(ModelsEmitter.HEADER).append('\n');
     index.append("export * from './api-config';\n");
     index.append("export * from './models';\n");
@@ -34,45 +34,75 @@ public final class AngularEmitter {
     return files;
   }
 
-  private static final String CONFIG =
-      ModelsEmitter.HEADER
-          + """
+  private static String config(boolean errors) {
+    var out = new StringBuilder(ModelsEmitter.HEADER).append('\n');
+    if (errors) {
+      out.append(
+          "import { HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';\n");
+      out.append("import { InjectionToken } from '@angular/core';\n");
+      out.append("import type { ApiError } from './models';\n");
+    } else {
+      out.append("import { HttpHeaders, HttpParams } from '@angular/common/http';\n");
+      out.append("import { InjectionToken } from '@angular/core';\n");
+    }
+    out.append(HELPERS);
+    if (errors) {
+      out.append(API_ERROR);
+    }
+    return out.toString();
+  }
 
-          import { HttpHeaders, HttpParams } from '@angular/common/http';
-          import { InjectionToken } from '@angular/core';
+  private static final String HELPERS =
+      """
 
-          /**
-           * The URL the API is served from, without a trailing slash. Defaults to the page origin;
-           * provide it to call another host: `{ provide: API_BASE_URL, useValue: 'https://api.example.com' }`.
-           */
-          export const API_BASE_URL = new InjectionToken<string>('API_BASE_URL', {
-            factory: () => '',
-          });
+      /**
+       * The URL the API is served from, without a trailing slash. Defaults to the page origin;
+       * provide it to call another host: `{ provide: API_BASE_URL, useValue: 'https://api.example.com' }`.
+       */
+      export const API_BASE_URL = new InjectionToken<string>('API_BASE_URL', {
+        factory: () => '',
+      });
 
-          type Scalar = string | number | boolean;
+      type Scalar = string | number | boolean;
 
-          /** Query parameters without the undefined and null values; arrays repeat the key. */
-          export function httpParams(
-            values: Record<string, Scalar | readonly Scalar[] | null | undefined>,
-          ): HttpParams {
-            let params = new HttpParams();
-            for (const [key, value] of Object.entries(values)) {
-              if (value !== null && value !== undefined) {
-                params = params.appendAll({ [key]: value });
-              }
-            }
-            return params;
+      /** Query parameters without the undefined and null values; arrays repeat the key. */
+      export function httpParams(
+        values: Record<string, Scalar | readonly Scalar[] | null | undefined>,
+      ): HttpParams {
+        let params = new HttpParams();
+        for (const [key, value] of Object.entries(values)) {
+          if (value !== null && value !== undefined) {
+            params = params.appendAll({ [key]: value });
           }
+        }
+        return params;
+      }
 
-          /** Request headers without the undefined and null values. */
-          export function httpHeaders(values: Record<string, Scalar | null | undefined>): HttpHeaders {
-            let headers = new HttpHeaders();
-            for (const [key, value] of Object.entries(values)) {
-              if (value !== null && value !== undefined) {
-                headers = headers.set(key, String(value));
-              }
-            }
-            return headers;
+      /** Request headers without the undefined and null values. */
+      export function httpHeaders(values: Record<string, Scalar | null | undefined>): HttpHeaders {
+        let headers = new HttpHeaders();
+        for (const [key, value] of Object.entries(values)) {
+          if (value !== null && value !== undefined) {
+            headers = headers.set(key, String(value));
           }
-          """;
+        }
+        return headers;
+      }
+      """;
+
+  private static final String API_ERROR =
+      """
+
+      /**
+       * The typed body of a failed request, from the error of an `Observable` or of a resource;
+       * `undefined` when there is none (network failure, empty or non-JSON body). The type comes
+       * from the API's exception handlers; the body itself is not validated.
+       */
+      export function apiError(error: unknown): ApiError | undefined {
+        if (error instanceof HttpErrorResponse && typeof error.error === 'object' && error.error !== null) {
+          return error.error as ApiError;
+        }
+        return undefined;
+      }
+      """;
 }

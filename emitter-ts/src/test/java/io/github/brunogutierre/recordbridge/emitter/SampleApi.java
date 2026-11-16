@@ -9,7 +9,10 @@ import io.github.brunogutierre.recordbridge.model.Endpoint;
 import io.github.brunogutierre.recordbridge.model.HttpMethod;
 import io.github.brunogutierre.recordbridge.model.Param;
 import io.github.brunogutierre.recordbridge.model.Param.Kind;
+import io.github.brunogutierre.recordbridge.model.Property;
 import io.github.brunogutierre.recordbridge.model.Response;
+import io.github.brunogutierre.recordbridge.model.TypeDecl;
+import io.github.brunogutierre.recordbridge.model.TypeRef;
 import io.github.brunogutierre.recordbridge.model.TypeRef.ArrayOf;
 import io.github.brunogutierre.recordbridge.model.TypeRef.Named;
 import java.util.List;
@@ -82,6 +85,21 @@ final class SampleApi {
                     "/files/{*path}",
                     List.of(new Param("path", "path", Kind.PATH, STRING, true)),
                     Response.TEXT)));
-    return new ApiModel(SampleModel.types(), List.of(orders, files));
+    var types = new java.util.ArrayList<>(SampleModel.types());
+    types.add(
+        TypeDecl.ObjectType.of(
+            "ProblemDetail",
+            List.of(
+                new Property("title", STRING, true),
+                new Property("status", NUMBER, true),
+                new Property("detail", STRING, true))));
+    types.add(
+        TypeDecl.ObjectType.of(
+            "ValidationErrors",
+            List.of(Property.required("fields", new TypeRef.MapOf(STRING, STRING)))));
+    return new ApiModel(
+        types,
+        List.of(orders, files),
+        List.of(Named.of("ProblemDetail"), Named.of("ValidationErrors")));
   }
 }
