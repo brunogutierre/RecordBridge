@@ -20,4 +20,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "recordbridge"
 
-include("model", "reader-spring", "emitter-ts")
+include("model", "reader-spring", "emitter-ts", "generator", "gradle-plugin")
