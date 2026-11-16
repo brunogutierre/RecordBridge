@@ -31,8 +31,15 @@ jobs:
       - name: Build and test
         run: ./gradlew build
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
       - name: Type-check generated TypeScript (golden files)
-        run: npx -y -p typescript@7.0.2 tsc -p emitter-ts/src/test/typescript
+        run: |
+          npm ci
+          npm run check:ts
 
       - name: Upload test reports
         if: failure()

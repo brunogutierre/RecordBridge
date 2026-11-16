@@ -8,7 +8,11 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "noUnusedLocals": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": []
   },
-  "include": ["*.ts", "../resources/golden/*.ts"]
+  "include": [
+    "*.ts",
+    "../resources/golden/**/*.ts"
+  ]
 }

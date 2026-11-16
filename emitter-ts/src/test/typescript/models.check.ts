@@ -1,4 +1,4 @@
-// Compile-time checks that the generated models behave as intended. Run: tsc -p .
+// Compile-time checks that the generated models behave as intended. Run: npm run check:ts
 import { StatusValues, type OrderSearch, type Result, type Shape, type Status } from '../resources/golden/models';
 
 // Unions narrow on their tag.
