@@ -3,7 +3,7 @@ plugins {
     id("recordbridge.published")
 }
 
-val mavenDistribution by configurations.creating
+val mavenDistribution = configurations.create("mavenDistribution")
 
 dependencies {
     implementation(project(":generator"))
@@ -33,13 +33,14 @@ interface Archives {
     @get:Inject val operations: ArchiveOperations
 }
 
-val unpackMaven by tasks.registering(Sync::class) {
-    // Local copies: lambdas that capture script objects break the configuration cache.
-    val archives = objects.newInstance<Archives>().operations
-    val distribution = mavenDistribution
-    from(distribution.elements.map { files -> files.map { archives.zipTree(it) } })
-    into(layout.buildDirectory.dir("maven"))
-}
+val unpackMaven =
+    tasks.register<Sync>("unpackMaven") {
+        // Local copies: lambdas that capture script objects break the configuration cache.
+        val archives = objects.newInstance<Archives>().operations
+        val distribution = mavenDistribution
+        from(distribution.elements.map { files -> files.map { archives.zipTree(it) } })
+        into(layout.buildDirectory.dir("maven"))
+    }
 
 tasks.test {
     dependsOn(unpackMaven)
