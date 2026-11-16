@@ -67,6 +67,10 @@ compiled classes ──► reader-spring ──► model (records) ──► emi
 
 Main decisions, with their reasons, are in [ROADMAP.md](ROADMAP.md#architecture-decisions).
 
+## Example
+
+[`examples/spring-angular`](examples/spring-angular) is a Spring Boot 4 + Angular 22 app that uses the whole generated layer (resources, typed errors, typed and text event streams). Its Playwright tests run against the real server in CI, and the generated files are committed so you can read real output.
+
 ## Usage (Gradle)
 
 > Not published yet: the first release is milestone M4. Until then, use it from a local build (`./gradlew publishToMavenLocal` arrives with the release PR).
@@ -90,6 +94,7 @@ recordBridge {
 ```
 
 - The task reads the `main` source set's compiled classes, so it runs after `classes`. It is cacheable and supports the configuration cache.
+- The classes are loaded in a worker process running the project's Java toolchain (override with the task's `javaLauncher`), so code compiled for a newer Java than the Gradle daemon works.
 - Only files that start with the RecordBridge header are replaced: hand-written files in the output folder are kept.
 - Parameter names need the `-parameters` compiler flag; the Spring Boot plugin already enables it.
 

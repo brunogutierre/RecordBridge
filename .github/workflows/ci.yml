@@ -49,3 +49,42 @@ jobs:
           name: test-reports
           path: '**/build/reports/'
           if-no-files-found: ignore
+
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: examples/spring-angular/web/package-lock.json
+
+      - name: Generated API is up to date
+        run: |
+          ./gradlew -p examples/spring-angular generateTypeScript
+          git diff --exit-code examples/spring-angular/web/src/app/api
+
+      - name: Build the Angular app and run the end-to-end tests
+        working-directory: examples/spring-angular/web
+        run: |
+          npm ci
+          npx ng build
+          npx playwright install --with-deps chromium
+          npx playwright test
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: examples/spring-angular/web/test-results/
+          if-no-files-found: ignore
