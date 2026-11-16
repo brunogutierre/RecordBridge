@@ -15,6 +15,7 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -50,6 +51,7 @@ public final class TypeReader {
   private final ObjectMapper mapper;
   private final SerializationContext context;
   private final UnmarkedNullness unmarked;
+  private final Polymorphism polymorphism;
   private final Map<Class<?>, TypeDecl> declarations = new LinkedHashMap<>();
   private final Map<String, Class<?>> classesByName = new HashMap<>();
 
@@ -63,6 +65,7 @@ public final class TypeReader {
     this.mapper = mapper;
     this.context = mapper._serializationContext();
     this.unmarked = unmarked;
+    this.polymorphism = new Polymorphism(context);
   }
 
   /** Reads a type written as a class, with no type arguments. */
@@ -203,8 +206,14 @@ public final class TypeReader {
     String name = nameOf(type);
     if (!declarations.containsKey(type)) {
       declarations.put(type, PENDING); // recursive types refer to themselves while being read
-      TypeDecl declaration =
-          type.isEnum() ? enumType(type, name) : objectType(type, name, description, where);
+      TypeDecl declaration;
+      if (type.isEnum()) {
+        declaration = enumType(type, name);
+      } else if (type.isInterface() || Modifier.isAbstract(type.getModifiers())) {
+        declaration = unionType(type, name, where);
+      } else {
+        declaration = objectType(type, name, description);
+      }
       declarations.remove(type);
       declarations.put(type, declaration);
     }
@@ -240,29 +249,85 @@ public final class TypeReader {
     return new TypeDecl.EnumType(name, constants);
   }
 
-  private TypeDecl objectType(
-      Class<?> type, String name, BeanDescription description, String where) {
-    if (type.isInterface() || Modifier.isAbstract(type.getModifiers())) {
+  /**
+   * Reads an abstract type as the union of its concrete subtypes. A generic variant keeps the type
+   * parameters it passes straight to the union, such as {@code Ok<T> implements Result<T>}.
+   */
+  private TypeDecl unionType(Class<?> type, String name, String where) {
+    List<Class<?>> subtypes = polymorphism.concreteSubtypes(type);
+    if (subtypes.isEmpty()) {
       throw new UnsupportedTypeException(
           "Abstract type "
               + type.getName()
               + " at "
               + where
-              + " needs a sealed hierarchy or @JsonTypeInfo to be represented");
+              + " has no known subtypes: make it sealed or list them with @JsonSubTypes");
     }
+    String discriminator = polymorphism.discriminator(type);
+    var variants = new ArrayList<TypeDecl.Variant>();
+    for (Class<?> subtype : subtypes) {
+      TypeRef ref = declare(subtype, variantArguments(type, subtype), where);
+      if (!(ref instanceof TypeRef.Named named)) {
+        throw new UnsupportedTypeException(
+            subtype.getName() + " is a variant of " + type.getName() + " but is not an object");
+      }
+      String tag = polymorphism.tag(subtype).map(TypeDecl.Tag::value).orElse(null);
+      variants.add(new TypeDecl.Variant(discriminator == null ? null : tag, named));
+    }
+    return new TypeDecl.UnionType(name, typeParameters(type), discriminator, variants);
+  }
+
+  private static List<TypeRef> variantArguments(Class<?> union, Class<?> variant) {
+    var arguments = new ArrayList<TypeRef>();
+    Type[] passed = argumentsPassedTo(union, variant);
+    TypeVariable<?>[] unionParameters = union.getTypeParameters();
+    for (TypeVariable<?> parameter : variant.getTypeParameters()) {
+      TypeRef argument = TypeRef.UNKNOWN;
+      for (int i = 0; i < passed.length; i++) {
+        if (passed[i].equals(parameter)) {
+          argument = new TypeRef.Variable(unionParameters[i].getName());
+        }
+      }
+      arguments.add(argument);
+    }
+    return arguments;
+  }
+
+  /** The type arguments a class passes to a direct supertype, or none if it isn't direct. */
+  private static Type[] argumentsPassedTo(Class<?> supertype, Class<?> type) {
+    var direct = new ArrayList<Type>(List.of(type.getGenericInterfaces()));
+    if (type.getGenericSuperclass() != null) {
+      direct.add(type.getGenericSuperclass());
+    }
+    for (Type candidate : direct) {
+      if (candidate instanceof ParameterizedType parameterized
+          && parameterized.getRawType() == supertype) {
+        return parameterized.getActualTypeArguments();
+      }
+    }
+    return new Type[0];
+  }
+
+  private static List<String> typeParameters(Class<?> type) {
+    return Arrays.stream(type.getTypeParameters()).map(TypeVariable::getName).toList();
+  }
+
+  private TypeDecl objectType(Class<?> type, String name, BeanDescription description) {
+    Optional<TypeDecl.Tag> tag = polymorphism.tag(type);
+    boolean tagReplacesProperty = tag.isPresent() && polymorphism.tagIsExistingProperty(type);
     JsonInclude.Value classInclusion =
         description.findPropertyInclusion(context.getConfig().getDefaultPropertyInclusion(type));
     var properties = new ArrayList<Property>();
     for (BeanPropertyDefinition definition : description.findProperties()) {
-      if (definition.couldSerialize()) {
+      boolean isTag = tagReplacesProperty && definition.getName().equals(tag.get().property());
+      if (definition.couldSerialize() && !isTag) {
         JsonInclude.Include inclusion =
             classInclusion.withOverrides(definition.findInclusion()).getValueInclusion();
         properties.add(property(type, definition, inclusion));
       }
     }
-    List<String> parameters =
-        Arrays.stream(type.getTypeParameters()).map(TypeVariable::getName).toList();
-    return new TypeDecl.ObjectType(name, parameters, properties, List.of());
+    return new TypeDecl.ObjectType(
+        name, typeParameters(type), properties, tag.map(List::of).orElse(List.of()));
   }
 
   /**

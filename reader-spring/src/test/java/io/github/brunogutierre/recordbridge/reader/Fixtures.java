@@ -115,8 +115,6 @@ final class Fixtures {
     List<List<String>> matrix;
   }
 
-  interface Shape {}
-
   record Event(Thread at) {}
 
   static final class First {
