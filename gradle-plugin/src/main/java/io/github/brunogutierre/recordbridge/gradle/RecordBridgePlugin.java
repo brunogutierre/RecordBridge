@@ -3,8 +3,10 @@ package io.github.brunogutierre.recordbridge.gradle;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.plugins.JavaPlugin;
+import org.gradle.api.plugins.JavaPluginExtension;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
+import org.gradle.jvm.toolchain.JavaToolchainService;
 
 /**
  * Adds the {@code recordBridge} extension and the {@code generateTypeScript} task to a Java
@@ -46,6 +48,18 @@ public final class RecordBridgePlugin implements Plugin<Project> {
                         task.getUnmarkedNullness().set(extension.getUnmarkedNullness());
                         task.getOutputDir().set(extension.getOutputDir());
                         task.dependsOn(main.getClassesTaskName());
+                        // Load the classes with the Java they were compiled for.
+                        var toolchain =
+                            project
+                                .getExtensions()
+                                .getByType(JavaPluginExtension.class)
+                                .getToolchain();
+                        task.getJavaLauncher()
+                            .convention(
+                                project
+                                    .getExtensions()
+                                    .getByType(JavaToolchainService.class)
+                                    .launcherFor(toolchain));
                       });
             });
   }

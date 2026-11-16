@@ -1,19 +1,8 @@
 package io.github.brunogutierre.recordbridge.gradle;
 
-import io.github.brunogutierre.recordbridge.generator.Generator;
-import io.github.brunogutierre.recordbridge.generator.GeneratorConfig;
-import io.github.brunogutierre.recordbridge.generator.GeneratorResult;
 import io.github.brunogutierre.recordbridge.reader.UnmarkedNullness;
-import java.io.File;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
+import javax.inject.Inject;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -23,8 +12,11 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.jvm.toolchain.JavaLauncher;
+import org.gradle.workers.WorkerExecutor;
 
 /** Reads the compiled controllers and writes the Angular API layer. */
 @CacheableTask
@@ -50,28 +42,35 @@ public abstract class GenerateTypeScriptTask extends DefaultTask {
   @OutputDirectory
   public abstract DirectoryProperty getOutputDir();
 
+  /**
+   * The Java that runs the generation; it must be able to load the compiled classes. Defaults to
+   * the project's toolchain.
+   */
+  @Nested
+  public abstract Property<JavaLauncher> getJavaLauncher();
+
+  /** Runs the work in a separate process. */
+  @Inject
+  protected abstract WorkerExecutor getWorkerExecutor();
+
   @TaskAction
   void generate() {
-    var config =
-        new GeneratorConfig(
-            getBasePackages().get(), getOutputDir().get().getAsFile().toPath(), unmarkedNullness());
-    List<Path> classDirs = getClassesDirs().getFiles().stream().map(File::toPath).toList();
-    // Parent-first delegation to the plugin's class loader: Spring and Jackson resolve to the
-    // classes RecordBridge was built with, so the annotations on the application classes match.
-    try (var loader = new URLClassLoader(urls(), getClass().getClassLoader())) {
-      GeneratorResult result = Generator.generate(config, classDirs, loader);
-      result.skippedClasses().forEach(c -> getLogger().warn("RecordBridge skipped {}", c));
-      getLogger()
-          .lifecycle(
-              "RecordBridge: {} controllers, {} types → {}",
-              result.controllers(),
-              result.types(),
-              config.outputDir());
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    } catch (RuntimeException e) {
-      throw new GradleException("RecordBridge: " + e.getMessage(), e);
-    }
+    UnmarkedNullness nullness = unmarkedNullness();
+    JavaLauncher launcher = getJavaLauncher().get();
+    getWorkerExecutor()
+        .processIsolation(spec -> {
+          spec.getForkOptions().setExecutable(launcher.getExecutablePath().getAsFile());
+          spec.getForkOptions().setMaxHeapSize("512m");
+        })
+        .submit(
+            GenerateWork.class,
+            parameters -> {
+              parameters.getClassesDirs().from(getClassesDirs());
+              parameters.getRuntimeClasspath().from(getRuntimeClasspath());
+              parameters.getBasePackages().set(getBasePackages());
+              parameters.getUnmarkedNullness().set(nullness);
+              parameters.getOutputDir().set(getOutputDir());
+            });
   }
 
   private UnmarkedNullness unmarkedNullness() {
@@ -82,13 +81,5 @@ public abstract class GenerateTypeScriptTask extends DefaultTask {
       throw new GradleException(
           "recordBridge.unmarkedNullness must be NON_NULL or NULLABLE, not " + value, e);
     }
-  }
-
-  private URL[] urls() throws MalformedURLException {
-    var urls = new ArrayList<URL>();
-    for (File file : getClassesDirs().plus(getRuntimeClasspath()).getFiles()) {
-      urls.add(file.toURI().toURL());
-    }
-    return urls.toArray(URL[]::new);
   }
 }
