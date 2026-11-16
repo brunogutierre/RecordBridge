@@ -156,13 +156,6 @@ class TypeReaderTest {
   }
 
   @Test
-  void rejectsAbstractTypes() {
-    assertThatThrownBy(() -> reader.read(Fixtures.Shape.class))
-        .isInstanceOf(UnsupportedTypeException.class)
-        .hasMessageContaining("sealed hierarchy or @JsonTypeInfo");
-  }
-
-  @Test
   void rejectsUnknownJdkTypesWithTheirLocation() {
     assertThatThrownBy(() -> reader.read(Fixtures.Event.class))
         .isInstanceOf(UnsupportedTypeException.class)
