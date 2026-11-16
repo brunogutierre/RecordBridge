@@ -2,5 +2,6 @@
 
 export * from './api-config';
 export * from './models';
+export * from './chat.api';
 export * from './file-store.api';
 export * from './order.api';

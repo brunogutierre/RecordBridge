@@ -65,7 +65,7 @@ final class EndpointReader {
         httpMethod(mapping, where),
         join(basePath, first(mapping.path())),
         params(method, where),
-        response(method, where));
+        response(method, mapping, where));
   }
 
   static String first(String[] paths) {
@@ -210,8 +210,19 @@ final class EndpointReader {
             || SERVER_SIDE_PACKAGES.stream().anyMatch(p -> type.getName().startsWith(p)));
   }
 
-  private Response response(Method method, String where) {
-    AnnotatedType body = unwrap(method.getAnnotatedReturnType());
+  private Response response(Method method, RequestMapping mapping, String where) {
+    AnnotatedType returned = method.getAnnotatedReturnType();
+    String returnedName = rawName(returned);
+    if ("org.springframework.web.servlet.mvc.method.annotation.SseEmitter".equals(returnedName)) {
+      throw new UnsupportedTypeException(
+          where
+              + " returns SseEmitter, which doesn't say what its events contain; return"
+              + " Flux<ServerSentEvent<T>> instead");
+    }
+    if ("reactor.core.publisher.Flux".equals(returnedName)) {
+      return flux(returned, mapping, method, where);
+    }
+    AnnotatedType body = unwrap(returned);
     java.lang.reflect.Type type = body.getType();
     if (type == void.class || type == Void.class) {
       return Response.EMPTY;
@@ -221,6 +232,35 @@ final class EndpointReader {
     }
     TypeRef ref = types.read(body, method, where + " response");
     return new Response.Json(ref instanceof TypeRef.OrNull orNull ? orNull.type() : ref);
+  }
+
+  /**
+   * A {@code Flux} is an event stream when it emits {@code ServerSentEvent}s or the mapping
+   * produces {@code text/event-stream}; otherwise Spring MVC collects it into a JSON array.
+   */
+  private Response flux(
+      AnnotatedType returned, RequestMapping mapping, Method method, String where) {
+    if (!(returned instanceof AnnotatedParameterizedType parameterized)) {
+      throw new UnsupportedTypeException(where + " returns a raw Flux; declare its element type");
+    }
+    AnnotatedType element = parameterized.getAnnotatedActualTypeArguments()[0];
+    boolean sse = "org.springframework.http.codec.ServerSentEvent".equals(rawName(element));
+    if (sse) {
+      if (!(element instanceof AnnotatedParameterizedType event)) {
+        throw new UnsupportedTypeException(
+            where + " returns raw ServerSentEvents; declare their data type");
+      }
+      element = event.getAnnotatedActualTypeArguments()[0];
+    }
+    boolean eventStream =
+        sse
+            || java.util.Arrays.stream(mapping.produces())
+                .anyMatch(p -> p.startsWith("text/event-stream"));
+    TypeRef type = types.read(element, method, where + " response");
+    if (eventStream) {
+      return new Response.EventStream(type instanceof TypeRef.OrNull orNull ? orNull.type() : type);
+    }
+    return new Response.Json(new TypeRef.ArrayOf(type));
   }
 
   /** Strips ResponseEntity and async wrappers down to the body type. */

@@ -2,7 +2,7 @@
 import type { HttpResourceRef } from '@angular/common/http';
 import { signal } from '@angular/core';
 import type { Observable } from 'rxjs';
-import { FileStoreApi, OrderApi, apiError, type Order, type Page } from '../resources/golden/angular';
+import { ChatApi, FileStoreApi, OrderApi, apiError, type Order, type Page, type Shape } from '../resources/golden/angular';
 
 declare const orders: OrderApi;
 declare const files: FileStoreApi;
@@ -51,3 +51,9 @@ orders.get(1).subscribe({
     return body?.title;
   },
 });
+
+// Event streams emit the typed data of each event; there is no resource for them.
+declare const chat: ChatApi;
+export const answers: Observable<Shape> = chat.ask('general', 'What is a circle?');
+// @ts-expect-error: event streams have no resource factory.
+chat.askResource;
