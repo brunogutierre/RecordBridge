@@ -13,10 +13,14 @@ import java.util.Map;
 public final class AngularEmitter {
 
   private final ModelsEmitter models = new ModelsEmitter();
-  private final ServiceEmitter services = new ServiceEmitter();
 
   /** The generated files, by file name, in a stable order. */
   public Map<String, String> emit(ApiModel model) {
+    var enums = new java.util.HashSet<String>();
+    model.types().stream()
+        .filter(t -> t instanceof io.github.brunogutierre.recordbridge.model.TypeDecl.EnumType)
+        .forEach(t -> enums.add(t.name()));
+    var services = new ServiceEmitter(enums);
     var files = new LinkedHashMap<String, String>();
     files.put("models.ts", models.emit(model));
     files.put("api-config.ts", config(!model.errors().isEmpty()));
@@ -58,11 +62,12 @@ public final class AngularEmitter {
 
       /**
        * Turns a `text/event-stream` response, requested with `observe: 'events'` and
-       * `reportProgress: true`, into the JSON data of its events, emitted as they arrive.
+       * `reportProgress: true`, into the data of its events, emitted as they arrive: parsed as
+       * JSON, or as is when `json` is false (Spring writes `String` data without quotes).
        * Going through HttpClient keeps interceptors (authentication) and allows POST, which
        * `EventSource` doesn't. Unsubscribing cancels the request.
        */
-      export function sseEvents<T>(events: Observable<HttpEvent<string>>): Observable<T> {
+      export function sseEvents<T>(events: Observable<HttpEvent<string>>, json = true): Observable<T> {
         return new Observable<T>((subscriber) => {
           let seen = 0;
           let buffer = '';
@@ -78,7 +83,7 @@ public final class AngularEmitter {
                 .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5))
                 .join('\\n');
               if (data !== '') {
-                subscriber.next(JSON.parse(data) as T);
+                subscriber.next((json ? JSON.parse(data) : data) as T);
               }
             }
           };

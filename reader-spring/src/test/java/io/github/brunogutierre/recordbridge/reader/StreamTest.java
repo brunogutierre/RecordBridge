@@ -45,9 +45,32 @@ class StreamTest {
   }
 
   @Test
+  void stringStreamsAreText() {
+    assertThat(endpoint("tokens").response())
+        .isEqualTo(new Response.EventStream(TypeRef.STRING, true));
+    assertThat(endpoint("ask").response())
+        .isEqualTo(new Response.EventStream(Named.of("Event"), false));
+  }
+
+  @Test
   void otherFluxesAreJsonArrays() {
     assertThat(endpoint("numbers").response())
         .isEqualTo(new Response.Json(new TypeRef.ArrayOf(TypeRef.NUMBER)));
+  }
+
+  @Test
+  void rejectsBinaryResponses() {
+    assertThatThrownBy(() -> reader.read(List.of(BinaryController.class)))
+        .isInstanceOf(UnsupportedTypeException.class)
+        .hasMessageContaining("returns binary content");
+  }
+
+  @org.springframework.web.bind.annotation.RestController
+  public static class BinaryController {
+    @org.springframework.web.bind.annotation.GetMapping("/file")
+    public byte[] file() {
+      return new byte[0];
+    }
   }
 
   @Test

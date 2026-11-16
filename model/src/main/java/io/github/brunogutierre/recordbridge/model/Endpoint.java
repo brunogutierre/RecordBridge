@@ -3,7 +3,6 @@ package io.github.brunogutierre.recordbridge.model;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.regex.Pattern;
 
 /**
  * One HTTP operation of a controller.
@@ -17,8 +16,6 @@ import java.util.regex.Pattern;
 public record Endpoint(
     String name, HttpMethod method, String path, List<Param> params, Response response) {
 
-  private static final Pattern PATH_VARIABLE = Pattern.compile("\\{\\*?([^}:]+)(?::[^}]*)?}");
-
   public Endpoint {
     Names.requireIdentifier(name, "endpoint name");
     if (!path.startsWith("/")) {
@@ -26,7 +23,7 @@ public record Endpoint(
     }
     params = List.copyOf(params);
     Names.requireUnique(params, Param::name, "parameter of " + name);
-    if (params.stream().filter(p -> p.kind() == Param.Kind.BODY).count() > 1) {
+    if (params.stream().filter(p -> p.kind().isBody()).count() > 1) {
       throw new IllegalArgumentException(name + " has more than one body parameter");
     }
     var declared = new TreeSet<String>();
@@ -48,10 +45,10 @@ public record Endpoint(
   /** The variable names in a Spring path template, such as {@code id} in {@code /orders/{id}}. */
   public static Set<String> pathVariables(String path) {
     var names = new TreeSet<String>();
-    var matcher = PATH_VARIABLE.matcher(path);
-    while (matcher.find()) {
-      names.add(matcher.group(1));
-    }
+    PathTemplate.parse(path).stream()
+        .map(PathTemplate.Part::variable)
+        .filter(java.util.Objects::nonNull)
+        .forEach(names::add);
     return names;
   }
 }

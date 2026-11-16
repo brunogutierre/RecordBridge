@@ -41,11 +41,12 @@ export function httpHeaders(values: Record<string, Scalar | null | undefined>): 
 
 /**
  * Turns a `text/event-stream` response, requested with `observe: 'events'` and
- * `reportProgress: true`, into the JSON data of its events, emitted as they arrive.
+ * `reportProgress: true`, into the data of its events, emitted as they arrive: parsed as
+ * JSON, or as is when `json` is false (Spring writes `String` data without quotes).
  * Going through HttpClient keeps interceptors (authentication) and allows POST, which
  * `EventSource` doesn't. Unsubscribing cancels the request.
  */
-export function sseEvents<T>(events: Observable<HttpEvent<string>>): Observable<T> {
+export function sseEvents<T>(events: Observable<HttpEvent<string>>, json = true): Observable<T> {
   return new Observable<T>((subscriber) => {
     let seen = 0;
     let buffer = '';
@@ -61,7 +62,7 @@ export function sseEvents<T>(events: Observable<HttpEvent<string>>): Observable<
           .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5))
           .join('\n');
         if (data !== '') {
-          subscriber.next(JSON.parse(data) as T);
+          subscriber.next((json ? JSON.parse(data) : data) as T);
         }
       }
     };

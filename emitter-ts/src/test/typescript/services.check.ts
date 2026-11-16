@@ -57,3 +57,9 @@ declare const chat: ChatApi;
 export const answers: Observable<Shape> = chat.ask('general', 'What is a circle?');
 // @ts-expect-error: event streams have no resource factory.
 chat.askResource;
+
+// Text streams emit strings; string-typed JSON bodies take their enum type; nullable results.
+export const tokens: Observable<string> = chat.tokens();
+export const updated: Observable<Order | null> = chat.setStatus('abc', 'OPEN');
+// @ts-expect-error: an enum body only takes its values.
+chat.setStatus('abc', 'PENDING');

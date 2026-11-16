@@ -73,6 +73,15 @@ final class EndpointReader {
           "org.springframework.web.context.request.async.WebAsyncTask",
           "reactor.core.publisher.Mono");
 
+  /** Bodies Spring writes as raw bytes. */
+  private static final Set<String> BINARY_TYPES =
+      Set.of(
+          "org.springframework.core.io.Resource",
+          "org.springframework.core.io.InputStreamResource",
+          "org.springframework.core.io.ByteArrayResource",
+          "org.springframework.core.io.FileSystemResource",
+          "org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody");
+
   private final TypeReader types;
 
   EndpointReader(TypeReader types) {
@@ -165,7 +174,10 @@ final class EndpointReader {
         boolean required = required(header.required(), header.defaultValue());
         params.add(param(context, parameter, header.name(), Param.Kind.HEADER, required, where));
       } else if (body != null) {
-        params.add(param(context, parameter, "", Param.Kind.BODY, body.required(), where));
+        // Spring reads a String body as plain text; anything else goes through Jackson.
+        Param.Kind kind =
+            parameter.getType() == String.class ? Param.Kind.TEXT_BODY : Param.Kind.BODY;
+        params.add(param(context, parameter, "", kind, body.required(), where));
       } else if (requestParam != null) {
         boolean required = required(requestParam.required(), requestParam.defaultValue());
         params.add(
@@ -201,7 +213,7 @@ final class EndpointReader {
     if (Optional.class.isAssignableFrom(parameter.getType())) {
       required = false;
     }
-    if (kind != Param.Kind.BODY) {
+    if (!kind.isBody()) {
       type = simple(types.withEnumConstantNames(type), kind, where);
     }
     String name = parameter.getName();
@@ -307,8 +319,13 @@ final class EndpointReader {
     if (type == String.class) {
       return Response.TEXT; // StringHttpMessageConverter writes it as is, not as JSON
     }
-    TypeRef ref = types.read(body, method, where + " response", context.bindings());
-    return new Response.Json(ref instanceof TypeRef.OrNull orNull ? orNull.type() : ref);
+    String bodyName = rawName(body);
+    if (type == byte[].class || (bodyName != null && BINARY_TYPES.contains(bodyName))) {
+      throw new UnsupportedTypeException(
+          where + " returns binary content, which RecordBridge doesn't support yet");
+    }
+    // A null result is an empty body, which Angular reads as null.
+    return new Response.Json(types.read(body, method, where + " response", context.bindings()));
   }
 
   /**
@@ -333,7 +350,9 @@ final class EndpointReader {
         sse || Arrays.stream(produces).anyMatch(p -> p.startsWith("text/event-stream"));
     TypeRef type = types.read(element, context.method(), where + " response", context.bindings());
     if (eventStream) {
-      return new Response.EventStream(type instanceof TypeRef.OrNull orNull ? orNull.type() : type);
+      TypeRef event = type instanceof TypeRef.OrNull orNull ? orNull.type() : type;
+      // Spring writes String event data as is; everything else as JSON.
+      return new Response.EventStream(event, element.getType() == String.class);
     }
     return new Response.Json(new TypeRef.ArrayOf(type));
   }

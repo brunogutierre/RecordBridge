@@ -58,7 +58,7 @@ final class SampleApi {
                     "/api/orders/{orderId}/note",
                     List.of(
                         new Param("id", "orderId", Kind.PATH, NUMBER, true),
-                        new Param("note", "note", Kind.BODY, STRING, false),
+                        new Param("note", "note", Kind.TEXT_BODY, STRING, false),
                         new Param("in", "in", Kind.QUERY, STRING, true)),
                     Response.EMPTY),
                 new Endpoint(
@@ -86,7 +86,21 @@ final class SampleApi {
                     List.of(
                         new Param("room", "room", Kind.PATH, STRING, true),
                         new Param("question", "question", Kind.BODY, STRING, true)),
-                    new Response.EventStream(Named.of("Shape")))));
+                    new Response.EventStream(Named.of("Shape"))),
+                new Endpoint(
+                    "tokens",
+                    HttpMethod.GET,
+                    "/api/chat/tokens",
+                    List.of(),
+                    new Response.EventStream(STRING, true)),
+                new Endpoint(
+                    "setStatus",
+                    HttpMethod.PUT,
+                    "/api/chat/{code:[a-z]{3}}/status`$",
+                    List.of(
+                        new Param("code", "code", Kind.PATH, STRING, true),
+                        new Param("status", "status", Kind.BODY, STATUS, true)),
+                    new Response.Json(new TypeRef.OrNull(ORDER)))));
     var files =
         new Controller(
             "FileStoreApi",
