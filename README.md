@@ -78,6 +78,13 @@ Requirements: JDK 17 or newer to run Gradle; the build provisions a JDK 25 toolc
 
 Run `spotlessApply` on its own, not in the same invocation as `build`: with the configuration cache, Gradle may run both in parallel.
 
+Emitter tests compare the output with golden files in `emitter-ts/src/test/resources/golden/`. After an intended change to the output:
+
+```bash
+./gradlew :emitter-ts:test -PupdateGolden   # rewrite the golden files, then review the diff
+npx -p typescript@7.0.2 tsc -p emitter-ts/src/test/typescript   # strict type-check of the golden files (also run in CI)
+```
+
 ### Project layout
 
 | Path | Purpose |
