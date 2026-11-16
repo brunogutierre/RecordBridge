@@ -224,7 +224,7 @@ final class EndpointReader {
   }
 
   /** Strips ResponseEntity and async wrappers down to the body type. */
-  private static AnnotatedType unwrap(AnnotatedType type) {
+  static AnnotatedType unwrap(AnnotatedType type) {
     AnnotatedType current = type;
     while (true) {
       @Nullable String raw = rawName(current);

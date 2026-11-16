@@ -39,6 +39,12 @@ export interface Page<T> {
   total: number;
 }
 
+export interface ProblemDetail {
+  title?: string;
+  status?: number;
+  detail?: string;
+}
+
 export type Result<T> = Ok<T> | Err;
 
 export type Shape = Circle | Square;
@@ -50,3 +56,10 @@ export interface Square {
 
 export const StatusValues = ['OPEN', 'CLOSED', 'it\'s "done"'] as const;
 export type Status = (typeof StatusValues)[number];
+
+export interface ValidationErrors {
+  fields: Record<string, string>;
+}
+
+/** Any body an error response of this API may carry. */
+export type ApiError = ProblemDetail | ValidationErrors;

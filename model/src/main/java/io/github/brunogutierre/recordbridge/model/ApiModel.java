@@ -6,20 +6,33 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Everything RecordBridge knows about an API: its type declarations and controllers.
+ * Everything RecordBridge knows about an API: its type declarations, controllers and the bodies its
+ * error handlers send.
  *
  * <p>The constructor checks that the model is closed: every {@link TypeRef.Named} points to a
  * declaration with the same number of type arguments, type variables are only used inside the
  * generic declaration that defines them, and union variants are tagged object types.
  */
-public record ApiModel(List<TypeDecl> types, List<Controller> controllers) {
+public record ApiModel(List<TypeDecl> types, List<Controller> controllers, List<TypeRef> errors) {
 
+  /**
+   * @param errors the body types error responses may carry, such as {@code ProblemDetail}; any of
+   *     them can come back from any endpoint
+   */
   public ApiModel {
     types = List.copyOf(types);
     controllers = List.copyOf(controllers);
+    errors = List.copyOf(errors);
     Names.requireUnique(types, TypeDecl::name, "type");
     Names.requireUnique(controllers, Controller::name, "controller");
-    new Checker(types).check(controllers);
+    var checker = new Checker(types);
+    checker.check(controllers);
+    errors.forEach(e -> checker.ref(e, Set.of(), "error type"));
+  }
+
+  /** A model without typed errors. */
+  public ApiModel(List<TypeDecl> types, List<Controller> controllers) {
+    this(types, controllers, List.of());
   }
 
   /** Finds a declaration by name. */

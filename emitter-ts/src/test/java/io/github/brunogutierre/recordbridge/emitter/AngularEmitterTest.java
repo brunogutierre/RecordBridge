@@ -3,6 +3,7 @@ package io.github.brunogutierre.recordbridge.emitter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
+import io.github.brunogutierre.recordbridge.model.ApiModel;
 import io.github.brunogutierre.recordbridge.model.Controller;
 import io.github.brunogutierre.recordbridge.model.Endpoint;
 import io.github.brunogutierre.recordbridge.model.HttpMethod;
@@ -62,6 +63,15 @@ class AngularEmitterTest {
         .isThrownBy(
             () -> new ServiceEmitter().emit(new Controller("AApi", List.of(get, getResource))))
         .withMessageContaining("AApi.getResource clashes");
+  }
+
+  @Test
+  void typedErrorsOnlyWhenTheModelHasThem() {
+    var bare = new AngularEmitter().emit(new ApiModel(List.of(), List.of()));
+
+    assertThat(bare.get("api-config.ts")).doesNotContain("apiError", "HttpErrorResponse");
+    assertThat(bare.get("models.ts")).doesNotContain("ApiError");
+    assertThat(files.get("api-config.ts")).contains("import type { ApiError } from './models';");
   }
 
   @Test

@@ -30,6 +30,12 @@ public final class ModelsEmitter {
     model.types().stream()
         .sorted(Comparator.comparing(TypeDecl::name))
         .forEach(type -> out.append('\n').append(declaration(type)));
+    if (!model.errors().isEmpty()) {
+      out.append("\n/** Any body an error response of this API may carry. */\n")
+          .append("export type ApiError = ")
+          .append(model.errors().stream().map(Ts::type).collect(Collectors.joining(" | ")))
+          .append(";\n");
+    }
     return out.toString();
   }
 

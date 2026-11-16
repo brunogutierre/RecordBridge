@@ -37,11 +37,18 @@ public final class ApiReader {
     var types = new TypeReader(mapper, unmarked);
     var endpoints = new EndpointReader(types);
     var controllers = new ArrayList<Controller>();
+    var controllerClasses = new java.util.LinkedHashSet<Class<?>>();
     classes.stream()
         .filter(ApiReader::isRestController)
         .sorted(Comparator.comparing(Class::getName))
-        .forEach(type -> controllers.add(controller(type, endpoints)));
-    return new ApiModel(types.declarations(), controllers);
+        .forEach(type -> {
+          controllerClasses.add(type);
+          controllers.add(controller(type, endpoints));
+        });
+    var errors = new ErrorReader(types).read(classes, controllerClasses);
+    var declarations = new ArrayList<>(types.declarations());
+    declarations.add(ErrorReader.PROBLEM_DETAIL_TYPE);
+    return new ApiModel(declarations, controllers, errors);
   }
 
   /** {@code OrderController} becomes {@code OrderApi}. */
