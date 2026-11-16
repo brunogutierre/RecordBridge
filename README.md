@@ -82,7 +82,7 @@ Emitter tests compare the output with golden files in `emitter-ts/src/test/resou
 
 ```bash
 ./gradlew :emitter-ts:test -PupdateGolden   # rewrite the golden files, then review the diff
-npx -p typescript@7.0.2 tsc -p emitter-ts/src/test/typescript   # strict type-check of the golden files (also run in CI)
+npm ci && npm run check:ts                  # strict tsc over the golden files, with Angular and RxJS types (also run in CI)
 ```
 
 ### Project layout
