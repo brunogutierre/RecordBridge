@@ -45,10 +45,26 @@ public final class Generator {
     }
     ApiModel model =
         new ApiReader(JsonMapper.builder().build(), config.unmarkedNullness()).read(classes);
+    if (model.controllers().isEmpty()
+        && classes.stream().anyMatch(Generator::looksLikeController)) {
+      // The annotations are there by name but not as RecordBridge's classes: two copies of Spring.
+      throw new IllegalStateException(
+          "Found @RestController classes but read none of them: Spring's annotations were loaded"
+              + " twice. Load the application classes in a class loader whose parent provides"
+              + " Spring and Jackson.");
+    }
     Map<String, String> files = new AngularEmitter().emit(model);
     write(config.outputDir(), files);
     return new GeneratorResult(
         model.controllers().size(), model.types().size(), List.copyOf(files.keySet()), skipped);
+  }
+
+  private static boolean looksLikeController(Class<?> type) {
+    return java.util.Arrays.stream(type.getAnnotations())
+        .anyMatch(a ->
+            a.annotationType()
+                .getName()
+                .equals("org.springframework.web.bind.annotation.RestController"));
   }
 
   /**

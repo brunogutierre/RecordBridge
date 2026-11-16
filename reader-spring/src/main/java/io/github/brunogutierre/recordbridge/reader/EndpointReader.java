@@ -5,17 +5,25 @@ import io.github.brunogutierre.recordbridge.model.HttpMethod;
 import io.github.brunogutierre.recordbridge.model.Param;
 import io.github.brunogutierre.recordbridge.model.Response;
 import io.github.brunogutierre.recordbridge.model.TypeRef;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedParameterizedType;
 import java.lang.reflect.AnnotatedType;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
+import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.annotation.AnnotatedMethod;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -27,15 +35,33 @@ import org.springframework.web.bind.annotation.ValueConstants;
 /** Reads one handler method of a controller into an {@link Endpoint}. */
 final class EndpointReader {
 
-  /** Parameter types Spring resolves from the server side: never sent by the client. */
-  private static final List<String> SERVER_SIDE_PACKAGES =
-      List.of("jakarta.servlet.", "org.springframework.", "java.io.", "java.security.");
-
-  private static final Set<Class<?>> SERVER_SIDE_TYPES =
-      Set.of(java.util.Locale.class, java.util.TimeZone.class, java.time.ZoneId.class);
+  /** Parameter types Spring resolves on the server: never sent by the client. */
+  private static final Set<String> SERVER_SIDE_TYPES =
+      Set.of(
+          "java.security.Principal",
+          "java.util.Locale",
+          "java.util.TimeZone",
+          "java.time.ZoneId",
+          "java.io.InputStream",
+          "java.io.Reader",
+          "java.io.OutputStream",
+          "java.io.Writer",
+          "org.springframework.http.HttpMethod",
+          "org.springframework.security.core.Authentication",
+          "org.springframework.ui.Model",
+          "org.springframework.ui.ModelMap",
+          "org.springframework.validation.BindingResult",
+          "org.springframework.validation.Errors",
+          "org.springframework.web.bind.support.SessionStatus",
+          "org.springframework.web.context.request.NativeWebRequest",
+          "org.springframework.web.context.request.WebRequest",
+          "org.springframework.web.servlet.mvc.support.RedirectAttributes",
+          "org.springframework.web.util.UriComponentsBuilder");
 
   private static final Set<String> SERVER_SIDE_ANNOTATIONS =
       Set.of("AuthenticationPrincipal", "RequestAttribute", "SessionAttribute", "CookieValue");
+
+  private static final String PAGEABLE = "org.springframework.data.domain.Pageable";
 
   /** Return wrappers whose first type argument is the actual response body. */
   private static final Set<String> ASYNC_WRAPPERS =
@@ -53,20 +79,37 @@ final class EndpointReader {
     this.types = types;
   }
 
-  Endpoint read(String basePath, Method method) {
+  /**
+   * Reads a handler method.
+   *
+   * @param controller the controller class; it may inherit the method from a generic base class,
+   *     whose type variables it binds
+   * @param classMapping the controller's own {@code @RequestMapping}, if any
+   */
+  Endpoint read(Class<?> controller, @Nullable RequestMapping classMapping, Method method) {
     RequestMapping mapping =
         AnnotatedElementUtils.findMergedAnnotation(method, RequestMapping.class);
-    String where = method.getDeclaringClass().getSimpleName() + "." + method.getName();
+    String where = controller.getSimpleName() + "." + method.getName();
     if (mapping == null) {
       throw new UnsupportedTypeException(where + " has no request mapping");
     }
+    var context =
+        new Context(method, Generics.bindings(controller, method.getDeclaringClass()), where);
+    String basePath = classMapping == null ? "" : first(classMapping.path());
+    String[] produces =
+        mapping.produces().length > 0 || classMapping == null
+            ? mapping.produces()
+            : classMapping.produces();
     return new Endpoint(
         method.getName(),
         httpMethod(mapping, where),
         join(basePath, first(mapping.path())),
-        params(method, where),
-        response(method, mapping, where));
+        params(context),
+        response(context, produces));
   }
+
+  /** The method being read, the type variables its class binds, and where it is for errors. */
+  private record Context(Method method, Map<TypeVariable<?>, Type> bindings, String where) {}
 
   static String first(String[] paths) {
     return paths.length == 0 ? "" : paths[0];
@@ -95,52 +138,45 @@ final class EndpointReader {
     };
   }
 
-  private List<Param> params(Method method, String where) {
+  private List<Param> params(Context context) {
     var params = new ArrayList<Param>();
-    for (java.lang.reflect.Parameter parameter : method.getParameters()) {
-      if (isServerSide(parameter)) {
+    Parameter[] parameters = context.method().getParameters();
+    // AnnotatedMethod merges parameter annotations declared on interfaces and superclasses, as
+    // Spring MVC does for its handler methods.
+    MethodParameter[] merged = new AnnotatedMethod(context.method()).getMethodParameters();
+    for (int i = 0; i < parameters.length; i++) {
+      Parameter parameter = parameters[i];
+      MethodParameter annotations = merged[i];
+      if (isServerSide(parameter, annotations)) {
         continue;
       }
       if (!parameter.isNamePresent()) {
         throw new UnsupportedTypeException(
-            where + ": parameter names are missing; compile with the -parameters flag");
+            context.where() + ": parameter names are missing; compile with the -parameters flag");
       }
-      String path = where + "(" + parameter.getName() + ")";
-      // Merged, so @AliasFor works: @PathVariable("id") sets value(), read through name().
-      PathVariable pathVariable =
-          AnnotatedElementUtils.findMergedAnnotation(parameter, PathVariable.class);
-      RequestParam requestParam =
-          AnnotatedElementUtils.findMergedAnnotation(parameter, RequestParam.class);
-      RequestHeader header =
-          AnnotatedElementUtils.findMergedAnnotation(parameter, RequestHeader.class);
-      RequestBody body = AnnotatedElementUtils.findMergedAnnotation(parameter, RequestBody.class);
+      String where = context.where() + "(" + parameter.getName() + ")";
+      PathVariable pathVariable = annotations.getParameterAnnotation(PathVariable.class);
+      RequestParam requestParam = annotations.getParameterAnnotation(RequestParam.class);
+      RequestHeader header = annotations.getParameterAnnotation(RequestHeader.class);
+      RequestBody body = annotations.getParameterAnnotation(RequestBody.class);
       if (pathVariable != null) {
-        params.add(param(parameter, pathVariable.name(), Param.Kind.PATH, true, path));
+        params.add(param(context, parameter, pathVariable.name(), Param.Kind.PATH, true, where));
       } else if (header != null) {
-        params.add(
-            param(
-                parameter,
-                header.name(),
-                Param.Kind.HEADER,
-                required(header.required(), header.defaultValue()),
-                path));
+        boolean required = required(header.required(), header.defaultValue());
+        params.add(param(context, parameter, header.name(), Param.Kind.HEADER, required, where));
       } else if (body != null) {
-        params.add(param(parameter, "", Param.Kind.BODY, body.required(), path));
+        params.add(param(context, parameter, "", Param.Kind.BODY, body.required(), where));
       } else if (requestParam != null) {
-        rejectMap(parameter, path);
+        boolean required = required(requestParam.required(), requestParam.defaultValue());
         params.add(
-            param(
-                parameter,
-                requestParam.name(),
-                Param.Kind.QUERY,
-                required(requestParam.required(), requestParam.defaultValue()),
-                path));
+            param(context, parameter, requestParam.name(), Param.Kind.QUERY, required, where));
+      } else if (PAGEABLE.equals(parameter.getType().getName())) {
+        params.addAll(pageable());
       } else if (parameter.getType().isRecord()) {
-        params.addAll(modelAttribute(parameter, path)); // a record bound from query parameters
+        params.addAll(modelAttribute(parameter, where)); // a record bound from query parameters
       } else {
-        rejectMap(parameter, path);
         // Spring binds an unannotated simple parameter as an optional @RequestParam.
-        params.add(param(parameter, "", Param.Kind.QUERY, false, path));
+        params.add(param(context, parameter, "", Param.Kind.QUERY, false, where));
       }
     }
     return params;
@@ -150,67 +186,108 @@ final class EndpointReader {
     return required && ValueConstants.DEFAULT_NONE.equals(defaultValue);
   }
 
-  private static void rejectMap(java.lang.reflect.Parameter parameter, String where) {
-    if (java.util.Map.class.isAssignableFrom(parameter.getType())) {
-      throw new UnsupportedTypeException(
-          where + ": a Map of all query parameters can't be typed; declare each parameter");
-    }
-  }
-
   private Param param(
-      java.lang.reflect.Parameter parameter,
+      Context context,
+      Parameter parameter,
       String wireName,
       Param.Kind kind,
       boolean required,
       String where) {
-    TypeRef type = types.read(parameter.getAnnotatedType(), parameter, where);
-    boolean optional = Optional.class.isAssignableFrom(parameter.getType());
+    TypeRef type = types.read(parameter.getAnnotatedType(), parameter, where, context.bindings());
     if (type instanceof TypeRef.OrNull orNull) {
       type = orNull.type(); // a null argument means "not sent"
       required = required && kind == Param.Kind.PATH;
     }
-    if (optional) {
+    if (Optional.class.isAssignableFrom(parameter.getType())) {
       required = false;
+    }
+    if (kind != Param.Kind.BODY) {
+      type = simple(types.withEnumConstantNames(type), kind, where);
     }
     String name = parameter.getName();
     return new Param(name, wireName.isEmpty() ? name : wireName, kind, type, required);
   }
 
-  private List<Param> modelAttribute(java.lang.reflect.Parameter parameter, String where) {
+  /**
+   * Checks that a value can travel in a URL or a header: a scalar, an enum or, outside the path, an
+   * array of them. Anything else needs {@code @RequestBody} or a record of simple components.
+   */
+  private TypeRef simple(TypeRef type, Param.Kind kind, String where) {
+    TypeRef element =
+        type instanceof TypeRef.ArrayOf array && kind != Param.Kind.PATH ? array.element() : type;
+    if (element instanceof TypeRef.OrNull orNull) {
+      element = orNull.type();
+    }
+    boolean scalar = element instanceof TypeRef.Primitive p && !p.equals(TypeRef.UNKNOWN);
+    boolean enumeration = element instanceof TypeRef.Named named && types.isEnum(named.name());
+    if (!scalar && !enumeration) {
+      throw new UnsupportedTypeException(
+          where
+              + " can't be sent as a "
+              + kind.name().toLowerCase(java.util.Locale.ROOT)
+              + " parameter; use @RequestBody, or a record of simple values for query"
+              + " parameters");
+    }
+    return type;
+  }
+
+  /**
+   * Spring Data's {@code Pageable} is bound from the {@code page}, {@code size} and {@code sort}
+   * query parameters.
+   */
+  private static List<Param> pageable() {
+    return List.of(
+        new Param("page", "page", Param.Kind.QUERY, TypeRef.NUMBER, false),
+        new Param("size", "size", Param.Kind.QUERY, TypeRef.NUMBER, false),
+        new Param("sort", "sort", Param.Kind.QUERY, new TypeRef.ArrayOf(TypeRef.STRING), false));
+  }
+
+  private List<Param> modelAttribute(Parameter parameter, String where) {
     var params = new ArrayList<Param>();
     for (RecordComponent component : parameter.getType().getRecordComponents()) {
-      TypeRef type =
-          types.read(
-              component.getAnnotatedType(),
-              component.getAccessor(),
-              where + "." + component.getName());
+      String path = where + "." + component.getName();
+      TypeRef type = types.read(component.getAnnotatedType(), component.getAccessor(), path);
       if (type instanceof TypeRef.OrNull orNull) {
         type = orNull.type();
       }
+      type = simple(types.withEnumConstantNames(type), Param.Kind.QUERY, path);
       params.add(
           new Param(component.getName(), component.getName(), Param.Kind.QUERY, type, false));
     }
     return params;
   }
 
-  private static boolean isServerSide(java.lang.reflect.Parameter parameter) {
-    Class<?> type = parameter.getType();
-    for (var annotation : parameter.getAnnotations()) {
+  private static boolean isServerSide(Parameter parameter, MethodParameter merged) {
+    for (Annotation annotation : merged.getParameterAnnotations()) {
       if (SERVER_SIDE_ANNOTATIONS.contains(annotation.annotationType().getSimpleName())) {
         return true;
       }
     }
-    boolean annotatedForClient =
-        parameter.isAnnotationPresent(RequestBody.class)
-            || parameter.isAnnotationPresent(RequestParam.class)
-            || parameter.isAnnotationPresent(RequestHeader.class)
-            || parameter.isAnnotationPresent(PathVariable.class);
-    return !annotatedForClient
-        && (SERVER_SIDE_TYPES.contains(type)
-            || SERVER_SIDE_PACKAGES.stream().anyMatch(p -> type.getName().startsWith(p)));
+    boolean forClient =
+        merged.hasParameterAnnotation(RequestBody.class)
+            || merged.hasParameterAnnotation(RequestParam.class)
+            || merged.hasParameterAnnotation(RequestHeader.class)
+            || merged.hasParameterAnnotation(PathVariable.class);
+    if (forClient) {
+      return false;
+    }
+    String type = parameter.getType().getName();
+    if (SERVER_SIDE_TYPES.contains(type) || type.startsWith("jakarta.servlet.")) {
+      return true;
+    }
+    if (type.startsWith("org.springframework.") && !type.equals(PAGEABLE)) {
+      throw new UnsupportedTypeException(
+          "Unsupported Spring parameter type "
+              + type
+              + " in "
+              + parameter.getDeclaringExecutable());
+    }
+    return false;
   }
 
-  private Response response(Method method, RequestMapping mapping, String where) {
+  private Response response(Context context, String[] produces) {
+    Method method = context.method();
+    String where = context.where();
     AnnotatedType returned = method.getAnnotatedReturnType();
     String returnedName = rawName(returned);
     if ("org.springframework.web.servlet.mvc.method.annotation.SseEmitter".equals(returnedName)) {
@@ -220,17 +297,17 @@ final class EndpointReader {
               + " Flux<ServerSentEvent<T>> instead");
     }
     if ("reactor.core.publisher.Flux".equals(returnedName)) {
-      return flux(returned, mapping, method, where);
+      return flux(context, returned, produces);
     }
     AnnotatedType body = unwrap(returned);
-    java.lang.reflect.Type type = body.getType();
+    Type type = body.getType();
     if (type == void.class || type == Void.class) {
       return Response.EMPTY;
     }
     if (type == String.class) {
       return Response.TEXT; // StringHttpMessageConverter writes it as is, not as JSON
     }
-    TypeRef ref = types.read(body, method, where + " response");
+    TypeRef ref = types.read(body, method, where + " response", context.bindings());
     return new Response.Json(ref instanceof TypeRef.OrNull orNull ? orNull.type() : ref);
   }
 
@@ -238,8 +315,8 @@ final class EndpointReader {
    * A {@code Flux} is an event stream when it emits {@code ServerSentEvent}s or the mapping
    * produces {@code text/event-stream}; otherwise Spring MVC collects it into a JSON array.
    */
-  private Response flux(
-      AnnotatedType returned, RequestMapping mapping, Method method, String where) {
+  private Response flux(Context context, AnnotatedType returned, String[] produces) {
+    String where = context.where();
     if (!(returned instanceof AnnotatedParameterizedType parameterized)) {
       throw new UnsupportedTypeException(where + " returns a raw Flux; declare its element type");
     }
@@ -253,10 +330,8 @@ final class EndpointReader {
       element = event.getAnnotatedActualTypeArguments()[0];
     }
     boolean eventStream =
-        sse
-            || java.util.Arrays.stream(mapping.produces())
-                .anyMatch(p -> p.startsWith("text/event-stream"));
-    TypeRef type = types.read(element, method, where + " response");
+        sse || Arrays.stream(produces).anyMatch(p -> p.startsWith("text/event-stream"));
+    TypeRef type = types.read(element, context.method(), where + " response", context.bindings());
     if (eventStream) {
       return new Response.EventStream(type instanceof TypeRef.OrNull orNull ? orNull.type() : type);
     }
@@ -276,14 +351,14 @@ final class EndpointReader {
         return current;
       }
       if (!(current instanceof AnnotatedParameterizedType parameterized)) {
-        return new UnknownBody();
+        return PlainTypes.of(Object.class); // a raw ResponseEntity: any JSON
       }
       current = parameterized.getAnnotatedActualTypeArguments()[0];
     }
   }
 
   private static @Nullable String rawName(AnnotatedType type) {
-    java.lang.reflect.Type t = type.getType();
+    Type t = type.getType();
     if (t instanceof Class<?> c) {
       return c.getName();
     }
@@ -291,29 +366,5 @@ final class EndpointReader {
       return ((Class<?>) p.getRawType()).getName();
     }
     return null;
-  }
-
-  /** The body of a raw {@code ResponseEntity}: any JSON. */
-  private static final class UnknownBody implements AnnotatedType {
-    @Override
-    public java.lang.reflect.Type getType() {
-      return Object.class;
-    }
-
-    @Override
-    public <T extends java.lang.annotation.Annotation> @Nullable T getAnnotation(
-        Class<T> annotationClass) {
-      return null;
-    }
-
-    @Override
-    public java.lang.annotation.Annotation[] getAnnotations() {
-      return new java.lang.annotation.Annotation[0];
-    }
-
-    @Override
-    public java.lang.annotation.Annotation[] getDeclaredAnnotations() {
-      return getAnnotations();
-    }
   }
 }

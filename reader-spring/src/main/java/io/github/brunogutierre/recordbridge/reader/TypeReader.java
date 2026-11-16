@@ -54,6 +54,8 @@ public final class TypeReader {
   private final Polymorphism polymorphism;
   private final Map<Class<?>, TypeDecl> declarations = new LinkedHashMap<>();
   private final Map<String, Class<?>> classesByName = new HashMap<>();
+  private final Map<String, TypeDecl> enumNames = new LinkedHashMap<>();
+  private final PagedModels pagedModels = new PagedModels();
 
   /** Creates a reader that treats unannotated types outside {@code @NullMarked} as non-null. */
   public TypeReader(ObjectMapper mapper) {
@@ -82,18 +84,70 @@ public final class TypeReader {
    * @param where a human-readable location used in error messages
    */
   public TypeRef read(AnnotatedType type, AnnotatedElement declaration, String where) {
-    return ref(type, Nullness.isMarked(declaration), declaration, where);
+    return read(type, declaration, where, Map.of());
   }
+
+  /**
+   * Reads a type declared in a generic supertype, replacing its type variables with what the
+   * subclass binds them to (see {@link Generics#bindings}).
+   */
+  public TypeRef read(
+      AnnotatedType type,
+      AnnotatedElement declaration,
+      String where,
+      Map<TypeVariable<?>, Type> bindings) {
+    return ref(type, new Scope(Nullness.isMarked(declaration), bindings), declaration, where);
+  }
+
+  /** The nullness default and the type variable bindings in effect while reading a type. */
+  private record Scope(boolean marked, Map<TypeVariable<?>, Type> bindings) {}
 
   /** The declarations collected so far, in the order they were completed. */
   public List<TypeDecl> declarations() {
-    return declarations.values().stream().filter(d -> d != PENDING).toList();
+    var all = new ArrayList<TypeDecl>();
+    declarations.values().stream().filter(d -> d != PENDING).forEach(all::add);
+    all.addAll(pagedModels.declarations());
+    all.addAll(enumNames.values());
+    return all;
+  }
+
+  /** Whether a declaration read so far is an enum, including {@code <Enum>Param} ones. */
+  public boolean isEnum(String name) {
+    return enumNames.containsKey(name)
+        || declarations().stream()
+            .anyMatch(d -> d.name().equals(name) && d instanceof TypeDecl.EnumType);
+  }
+
+  /**
+   * The enums of a parameter type as Spring binds request parameters, path variables and headers:
+   * by constant name ({@code Enum.valueOf}), not by their JSON value. When the two differ, the
+   * parameter uses a separate {@code <Enum>Param} declaration of the constant names.
+   */
+  public TypeRef withEnumConstantNames(TypeRef ref) {
+    if (ref instanceof TypeRef.ArrayOf array) {
+      return new TypeRef.ArrayOf(withEnumConstantNames(array.element()));
+    }
+    if (ref instanceof TypeRef.OrNull orNull) {
+      return TypeRef.nullable(withEnumConstantNames(orNull.type()));
+    }
+    Class<?> type = ref instanceof TypeRef.Named named ? classesByName.get(named.name()) : null;
+    if (type != null && type.isEnum() && declarations.get(type) instanceof TypeDecl.EnumType json) {
+      List<String> constants =
+          Arrays.stream(type.getEnumConstants()).map(c -> ((Enum<?>) c).name()).toList();
+      if (constants.equals(json.constants())) {
+        return ref;
+      }
+      String name = json.name() + "Param";
+      enumNames.putIfAbsent(name, new TypeDecl.EnumType(name, constants));
+      return TypeRef.Named.of(name);
+    }
+    return ref;
   }
 
   private TypeRef ref(
-      AnnotatedType type, boolean marked, @Nullable AnnotatedElement declaration, String where) {
-    TypeRef structure = structure(type, marked, where);
-    return isNullable(type, marked, declaration) ? TypeRef.nullable(structure) : structure;
+      AnnotatedType type, Scope scope, @Nullable AnnotatedElement declaration, String where) {
+    TypeRef structure = structure(type, scope, where);
+    return isNullable(type, scope.marked(), declaration) ? TypeRef.nullable(structure) : structure;
   }
 
   private boolean isNullable(
@@ -111,44 +165,52 @@ public final class TypeReader {
     return !marked && unmarked == UnmarkedNullness.NULLABLE;
   }
 
-  private TypeRef structure(AnnotatedType type, boolean marked, String where) {
+  private TypeRef structure(AnnotatedType type, Scope scope, String where) {
     if (type instanceof AnnotatedParameterizedType parameterized) {
-      return parameterized(parameterized, marked, where);
+      return parameterized(parameterized, scope, where);
     }
     if (type instanceof AnnotatedArrayType array) {
       if (array.getType() == byte[].class) {
         return TypeRef.STRING;
       }
       return new TypeRef.ArrayOf(
-          ref(array.getAnnotatedGenericComponentType(), marked, null, where + "[]"));
+          ref(array.getAnnotatedGenericComponentType(), scope, null, where + "[]"));
     }
     if (type instanceof AnnotatedTypeVariable variable) {
-      return new TypeRef.Variable(((TypeVariable<?>) variable.getType()).getName());
+      TypeVariable<?> declared = (TypeVariable<?>) variable.getType();
+      Type bound = scope.bindings().get(declared);
+      if (bound != null) {
+        return ref(PlainTypes.of(bound), new Scope(scope.marked(), Map.of()), null, where);
+      }
+      return new TypeRef.Variable(declared.getName());
     }
     if (type instanceof AnnotatedWildcardType wildcard) {
       if (wildcard.getAnnotatedLowerBounds().length > 0) {
         return TypeRef.UNKNOWN;
       }
-      return ref(wildcard.getAnnotatedUpperBounds()[0], marked, null, where);
+      return ref(wildcard.getAnnotatedUpperBounds()[0], scope, null, where);
     }
     return readClass((Class<?>) type.getType(), where);
   }
 
-  private TypeRef parameterized(AnnotatedParameterizedType type, boolean marked, String where) {
+  private TypeRef parameterized(AnnotatedParameterizedType type, Scope scope, String where) {
     Class<?> raw = (Class<?>) ((ParameterizedType) type.getType()).getRawType();
     AnnotatedType[] arguments = type.getAnnotatedActualTypeArguments();
     if (raw == Optional.class) {
-      return TypeRef.nullable(ref(arguments[0], marked, null, where)); // empty is written as null
+      return TypeRef.nullable(ref(arguments[0], scope, null, where)); // empty is written as null
+    }
+    if (PagedModels.isPage(raw)) {
+      return pagedModels.of(ref(arguments[0], scope, null, where + "<0>"));
     }
     if (Iterable.class.isAssignableFrom(raw)) {
-      return new TypeRef.ArrayOf(ref(arguments[0], marked, null, where + "[]"));
+      return new TypeRef.ArrayOf(ref(arguments[0], scope, null, where + "[]"));
     }
     if (Map.class.isAssignableFrom(raw)) {
-      return new TypeRef.MapOf(mapKey(arguments[0], where), ref(arguments[1], marked, null, where));
+      return new TypeRef.MapOf(mapKey(arguments[0], where), ref(arguments[1], scope, null, where));
     }
     var refs = new ArrayList<TypeRef>();
     for (int i = 0; i < arguments.length; i++) {
-      refs.add(ref(arguments[i], marked, null, where + "<" + i + ">"));
+      refs.add(ref(arguments[i], scope, null, where + "<" + i + ">"));
     }
     return declare(raw, refs, where);
   }
@@ -338,7 +400,12 @@ public final class TypeReader {
       Class<?> owner, BeanPropertyDefinition definition, JsonInclude.Include inclusion) {
     Member member = definition.getAccessor().getMember();
     String path = owner.getSimpleName() + "." + definition.getName();
-    TypeRef type = read(annotatedType(member), (AnnotatedElement) member, path);
+    TypeRef type =
+        read(
+            annotatedType(member),
+            (AnnotatedElement) member,
+            path,
+            Generics.bindings(owner, member.getDeclaringClass()));
     boolean isOptional = Optional.class.isAssignableFrom(definition.getRawPrimaryType());
     boolean omitted =
         switch (inclusion) {
