@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -118,7 +117,7 @@ final class Fixtures {
 
   interface Shape {}
 
-  record Event(Instant at) {}
+  record Event(Thread at) {}
 
   static final class First {
     record Item(String a) {}
