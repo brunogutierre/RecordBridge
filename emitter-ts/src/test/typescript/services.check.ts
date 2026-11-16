@@ -1,4 +1,6 @@
 // Compile-time checks of the generated Angular services. Run: npm run check:ts
+import type { HttpResourceRef } from '@angular/common/http';
+import { signal } from '@angular/core';
 import type { Observable } from 'rxjs';
 import { FileStoreApi, OrderApi, type Order, type Page } from '../resources/golden/angular';
 
@@ -25,3 +27,15 @@ orders.create(order, {});
 
 // @ts-expect-error: unknown enum values are rejected in query parameters.
 orders.list({ status: 'PENDING' });
+
+// Resources read their arguments from signals and skip the request while they are undefined.
+const selectedId = signal<number | undefined>(undefined);
+export const selected: HttpResourceRef<Order | undefined> = orders.getResource(() => {
+  const id = selectedId();
+  return id === undefined ? undefined : { id };
+});
+export const firstPage: HttpResourceRef<Page<Order> | undefined> = orders.listResource();
+export const report: HttpResourceRef<string | undefined> = files.readResource(() => ({ path: 'a' }));
+
+// @ts-expect-error: resource arguments keep their types too.
+orders.getResource(() => ({ id: '1' }));

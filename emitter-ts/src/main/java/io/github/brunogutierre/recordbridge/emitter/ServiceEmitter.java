@@ -2,6 +2,7 @@ package io.github.brunogutierre.recordbridge.emitter;
 
 import io.github.brunogutierre.recordbridge.model.Controller;
 import io.github.brunogutierre.recordbridge.model.Endpoint;
+import io.github.brunogutierre.recordbridge.model.HttpMethod;
 import io.github.brunogutierre.recordbridge.model.Param;
 import io.github.brunogutierre.recordbridge.model.Response;
 import io.github.brunogutierre.recordbridge.model.TypeRef;
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -89,11 +91,25 @@ public final class ServiceEmitter {
     var models = new TreeSet<String>();
     var helpers = new TreeSet<String>(Set.of("API_BASE_URL"));
     var body = new StringBuilder();
+    var methodNames = new java.util.HashSet<String>();
+    controller.endpoints().forEach(e -> methodNames.add(e.name()));
+    boolean resources = false;
     for (Endpoint endpoint : controller.endpoints()) {
       body.append('\n').append(method(endpoint, models, helpers));
+      if (hasResource(endpoint)) {
+        if (!methodNames.add(endpoint.name() + "Resource")) {
+          throw new IllegalArgumentException(
+              controller.name() + "." + endpoint.name() + "Resource clashes with an endpoint");
+        }
+        body.append('\n').append(resource(endpoint, helpers));
+        resources = true;
+      }
     }
     var out = new StringBuilder(ModelsEmitter.HEADER).append('\n');
-    out.append("import { HttpClient } from '@angular/common/http';\n");
+    out.append(
+        resources
+            ? "import { HttpClient, httpResource, type HttpResourceOptions, type HttpResourceRef } from '@angular/common/http';\n"
+            : "import { HttpClient } from '@angular/common/http';\n");
     out.append("import { Injectable, inject } from '@angular/core';\n");
     out.append("import type { Observable } from 'rxjs';\n");
     out.append("import { ").append(String.join(", ", helpers)).append(" } from './api-config';\n");
@@ -185,7 +201,7 @@ public final class ServiceEmitter {
         .append("('")
         .append(endpoint.method())
         .append("', ")
-        .append(url(endpoint.path(), endpoint.params()));
+        .append(url(endpoint.path(), endpoint.params(), p -> safe(p.name())));
     if (!requestOptions.isEmpty()) {
       out.append(", {\n");
       requestOptions.forEach(o -> out.append("      ").append(o).append(",\n"));
@@ -193,6 +209,77 @@ public final class ServiceEmitter {
     }
     out.append(");\n  }\n");
     return out.toString();
+  }
+
+  /** GETs that return JSON or text, without a body, also get a reactive resource factory. */
+  private static boolean hasResource(Endpoint endpoint) {
+    return endpoint.method() == HttpMethod.GET
+        && (endpoint.response() instanceof Response.Json
+            || endpoint.response() instanceof Response.Text)
+        && endpoint.params().stream().noneMatch(p -> p.kind() == Param.Kind.BODY);
+  }
+
+  /**
+   * A factory around Angular's {@code httpResource}: every argument comes from one {@code request}
+   * function, so the resource reloads when the signals it reads change, and skips the request while
+   * it returns {@code undefined}.
+   */
+  private static String resource(Endpoint endpoint, Set<String> helpers) {
+    boolean text = endpoint.response() instanceof Response.Text;
+    String result = text ? "string" : Ts.type(((Response.Json) endpoint.response()).body());
+    List<Param> params = endpoint.params();
+    var out = new StringBuilder();
+    out.append("  /** ")
+        .append(endpoint.method())
+        .append(' ')
+        .append(endpoint.path())
+        .append(", as a resource that reloads when the signals read by `request` change. */\n");
+    out.append("  ").append(endpoint.name()).append("Resource(");
+    if (!params.isEmpty()) {
+      boolean required = params.stream().anyMatch(Param::required);
+      String fields =
+          params.stream()
+              .map(p -> Ts.key(p.name()) + (p.required() ? ": " : "?: ") + Ts.type(p.type()))
+              .collect(Collectors.joining("; ", "{ ", " }"));
+      out.append("request: () => ").append(fields).append(" | undefined");
+      out.append(required ? ", " : " = () => ({}), ");
+    }
+    out.append("options?: HttpResourceOptions<")
+        .append(result)
+        .append(", unknown>): HttpResourceRef<")
+        .append(result)
+        .append(" | undefined> {\n");
+    String call = text ? "httpResource.text" : "httpResource<" + result + ">";
+    var request = new ArrayList<String>();
+    request.add("url: " + url(endpoint.path(), params, p -> "args." + p.name()));
+    List<Param> query = params.stream().filter(p -> p.kind() == Param.Kind.QUERY).toList();
+    List<Param> headers = params.stream().filter(p -> p.kind() == Param.Kind.HEADER).toList();
+    if (!query.isEmpty()) {
+      helpers.add("httpParams");
+      request.add("params: httpParams(" + values(query, "args") + ")");
+    }
+    if (!headers.isEmpty()) {
+      helpers.add("httpHeaders");
+      request.add("headers: httpHeaders(" + values(headers, "args") + ")");
+    }
+    if (params.isEmpty()) {
+      out.append("    return ")
+          .append(call)
+          .append("(() => ({ ")
+          .append(request.get(0))
+          .append(" }), options);\n");
+    } else {
+      out.append("    return ").append(call).append("(() => {\n");
+      out.append("      const args = request();\n");
+      out.append("      if (args === undefined) {\n");
+      out.append("        return undefined;\n");
+      out.append("      }\n");
+      out.append("      return {\n");
+      request.forEach(r -> out.append("        ").append(r).append(",\n"));
+      out.append("      };\n");
+      out.append("    }, options);\n");
+    }
+    return out.append("  }\n").toString();
   }
 
   private static String resultType(Response response, Set<String> models) {
@@ -210,22 +297,21 @@ public final class ServiceEmitter {
   }
 
   /** The URL template literal, with each path variable encoded. */
-  private static String url(String path, List<Param> params) {
+  private static String url(String path, List<Param> params, Function<Param, String> value) {
     Matcher matcher = PATH_VARIABLE.matcher(path);
     var out = new StringBuilder("`${this.baseUrl}");
     int last = 0;
     while (matcher.find()) {
       out.append(path, last, matcher.start());
       String wireName = matcher.group(2);
-      String name =
+      Param param =
           params.stream()
               .filter(p -> p.kind() == Param.Kind.PATH && p.wireName().equals(wireName))
               .findFirst()
-              .orElseThrow()
-              .name();
+              .orElseThrow();
       // A catch-all {*rest} keeps its slashes.
       String encode = matcher.group(1).isEmpty() ? "encodeURIComponent" : "encodeURI";
-      out.append("${").append(encode).append("(String(").append(safe(name)).append("))}");
+      out.append("${").append(encode).append("(String(").append(value.apply(param)).append("))}");
       last = matcher.end();
     }
     return out.append(path.substring(last)).append('`').toString();
