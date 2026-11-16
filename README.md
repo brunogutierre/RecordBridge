@@ -53,7 +53,7 @@ The other columns are a first assessment. Each one gets checked against a sample
 - Java 25 toolchain, bytecode for Java 17+; Spring Boot 4.x and Jackson 3
 - Gradle multi-module build; Gradle plugin and Maven plugin
 - Output for Angular 22+ (standalone, signals, `httpResource`)
-- Tests: JUnit 5, golden-file snapshots, `tsc --strict` on the output, Gradle TestKit, Maven Invoker, Playwright on an example app
+- Tests: JUnit 6 + AssertJ, golden-file snapshots, `tsc --strict` on the output, Gradle TestKit, Maven Invoker, Playwright on an example app
 
 ## Architecture (planned)
 
@@ -61,7 +61,7 @@ The other columns are a first assessment. Each one gets checked against a sample
 compiled classes ──► reader-spring ──► model (records) ──► emitter-ts ──► models.ts + *.api.ts
                       (reflection +                         (types or
                        Jackson 3 introspection)               Angular services)
-        ▲                                                                    
+        ▲
   gradle-plugin / maven-plugin (thin wrappers)
 ```
 
@@ -69,7 +69,26 @@ Main decisions, with their reasons, are in [ROADMAP.md](ROADMAP.md#architecture-
 
 ## How to run and test
 
-There is no code yet. This section is filled in as the milestones land.
+Requirements: JDK 17 or newer to run Gradle; the build provisions a JDK 25 toolchain (it uses a local JDK 25 if one is installed).
+
+```bash
+./gradlew build          # compile, test and coverage report for every module
+./gradlew spotlessApply  # format Java (google-java-format) and Gradle scripts (ktlint)
+```
+
+Run `spotlessApply` on its own, not in the same invocation as `build`: with the configuration cache, Gradle may run both in parallel.
+
+### Project layout
+
+| Path | Purpose |
+|---|---|
+| `build-logic/` | Convention plugin `recordbridge.java-library`: toolchain, `--release 17`, `-parameters`, `-Werror`, JUnit, JaCoCo, Spotless |
+| `gradle/libs.versions.toml` | Version catalog shared by the build and `build-logic` |
+| `model/` | Intermediate model (no dependencies besides JSpecify annotations) |
+| `reader-spring/` | Compiled Spring classes → model |
+| `emitter-ts/` | Model → TypeScript and Angular |
+
+Gradle and Maven plugin modules are added in milestone M3.
 
 ## License
 
