@@ -67,6 +67,32 @@ compiled classes ──► reader-spring ──► model (records) ──► emi
 
 Main decisions, with their reasons, are in [ROADMAP.md](ROADMAP.md#architecture-decisions).
 
+## Usage (Gradle)
+
+> Not published yet: the first release is milestone M4. Until then, use it from a local build (`./gradlew publishToMavenLocal` arrives with the release PR).
+
+```kotlin
+plugins {
+    java
+    id("org.springframework.boot") version "4.1.2"
+    id("io.github.brunogutierre.recordbridge") version "0.1.0"
+}
+
+recordBridge {
+    basePackages = listOf("com.example.api")        // default: every compiled class
+    outputDir = file("../web/src/app/api")           // default: build/generated/recordbridge
+    unmarkedNullness = "NON_NULL"                    // or "NULLABLE", for code outside @NullMarked
+}
+```
+
+```bash
+./gradlew generateTypeScript
+```
+
+- The task reads the `main` source set's compiled classes, so it runs after `classes`. It is cacheable and supports the configuration cache.
+- Only files that start with the RecordBridge header are replaced: hand-written files in the output folder are kept.
+- Parameter names need the `-parameters` compiler flag; the Spring Boot plugin already enables it.
+
 ## How to run and test
 
 Requirements: JDK 17 or newer to run Gradle; the build provisions a JDK 25 toolchain (it uses a local JDK 25 if one is installed).
@@ -95,8 +121,10 @@ npm run test:ts                             # runtime tests of generated helpers
 | `model/` | Intermediate model (no dependencies besides JSpecify annotations) |
 | `reader-spring/` | Compiled Spring classes → model |
 | `emitter-ts/` | Model → TypeScript and Angular |
+| `generator/` | Scan compiled classes → read → emit → write; shared by the build plugins |
+| `gradle-plugin/` | `io.github.brunogutierre.recordbridge` plugin, tested with Gradle TestKit |
 
-Gradle and Maven plugin modules are added in milestone M3.
+The Maven plugin module is added next.
 
 ## License
 
