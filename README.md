@@ -93,6 +93,28 @@ recordBridge {
 - Only files that start with the RecordBridge header are replaced: hand-written files in the output folder are kept.
 - Parameter names need the `-parameters` compiler flag; the Spring Boot plugin already enables it.
 
+## Usage (Maven)
+
+```xml
+<plugin>
+  <groupId>io.github.brunogutierre.recordbridge</groupId>
+  <artifactId>recordbridge-maven-plugin</artifactId>
+  <version>0.1.0</version>
+  <executions>
+    <execution>
+      <goals><goal>generate</goal></goals>  <!-- bound to process-classes -->
+    </execution>
+  </executions>
+  <configuration>
+    <basePackages><basePackage>com.example.api</basePackage></basePackages>
+    <outputDirectory>${project.basedir}/../web/src/app/api</outputDirectory>  <!-- default: target/recordbridge -->
+    <unmarkedNullness>NON_NULL</unmarkedNullness>
+  </configuration>
+</plugin>
+```
+
+`mvn process-classes` (or any later phase) generates the files; `-Drecordbridge.skip=true` skips it. Parameter names need `<maven.compiler.parameters>true</maven.compiler.parameters>`, which the Spring Boot parent already sets.
+
 ## How to run and test
 
 Requirements: JDK 17 or newer to run Gradle; the build provisions a JDK 25 toolchain (it uses a local JDK 25 if one is installed).
@@ -123,8 +145,9 @@ npm run test:ts                             # runtime tests of generated helpers
 | `emitter-ts/` | Model → TypeScript and Angular |
 | `generator/` | Scan compiled classes → read → emit → write; shared by the build plugins |
 | `gradle-plugin/` | `io.github.brunogutierre.recordbridge` plugin, tested with Gradle TestKit |
+| `maven-plugin/` | `recordbridge:generate` goal, tested by running a real Maven build |
 
-The Maven plugin module is added next.
+The Maven plugin tests publish every module to `build/test-repo` and unpack a Maven distribution first; both happen automatically in `./gradlew build` (network access needed).
 
 ## License
 
