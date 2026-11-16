@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.BeanDescription;
 import tools.jackson.databind.ObjectMapper;
@@ -262,8 +263,7 @@ public final class TypeReader {
     AnnotatedMember jsonValue = description.findJsonValueAccessor();
     if (jsonValue != null && !type.isEnum()) {
       // A value class such as `record Email(@JsonValue String value)` is written as its value.
-      var member = (AnnotatedElement) jsonValue.getMember();
-      return read(annotatedType(jsonValue.getMember()), member, where);
+      return read(accessorType(jsonValue), accessorElement(jsonValue), where);
     }
     String name = nameOf(type);
     if (!declarations.containsKey(type)) {
@@ -376,20 +376,87 @@ public final class TypeReader {
 
   private TypeDecl objectType(Class<?> type, String name, BeanDescription description) {
     Optional<TypeDecl.Tag> tag = polymorphism.tag(type);
-    boolean tagReplacesProperty = tag.isPresent() && polymorphism.tagIsExistingProperty(type);
-    JsonInclude.Value classInclusion =
-        description.findPropertyInclusion(context.getConfig().getDefaultPropertyInclusion(type));
-    var properties = new ArrayList<Property>();
-    for (BeanPropertyDefinition definition : description.findProperties()) {
-      boolean isTag = tagReplacesProperty && definition.getName().equals(tag.get().property());
-      if (definition.couldSerialize() && !isTag) {
-        JsonInclude.Include inclusion =
-            classInclusion.withOverrides(definition.findInclusion()).getValueInclusion();
-        properties.add(property(type, definition, inclusion));
-      }
-    }
+    String tagProperty =
+        tag.isPresent() && polymorphism.tagIsExistingProperty(type) ? tag.get().property() : null;
+    List<Property> properties = properties(type, description, tagProperty, type.getSimpleName());
     return new TypeDecl.ObjectType(
         name, typeParameters(type), properties, tag.map(List::of).orElse(List.of()));
+  }
+
+  /**
+   * The properties Jackson writes for a class, honoring {@code @JsonIgnoreProperties},
+   * {@code @JsonIncludeProperties}, {@code @JsonIgnoreType}, {@code @JsonUnwrapped} and
+   * {@code @JsonFormat}. Write-only properties ({@code @JsonProperty(access = WRITE_ONLY)}) are
+   * kept as optional, so request bodies can still send them.
+   */
+  private List<Property> properties(
+      Class<?> type, BeanDescription description, @Nullable String skipped, String where) {
+    if (description.findAnyGetter() != null) {
+      throw new UnsupportedTypeException(
+          type.getName() + " uses @JsonAnyGetter, whose extra properties can't be typed");
+    }
+    var config = context.getConfig();
+    var ignorals = config.getDefaultPropertyIgnorals(type, description.getClassInfo());
+    Set<String> ignored = ignorals == null ? Set.of() : ignorals.findIgnoredForSerialization();
+    var inclusions = config.getDefaultPropertyInclusions(type, description.getClassInfo());
+    Set<String> included = inclusions == null ? null : inclusions.getIncluded();
+    JsonInclude.Value classInclusion =
+        description.findPropertyInclusion(config.getDefaultPropertyInclusion(type));
+    var properties = new ArrayList<Property>();
+    for (BeanPropertyDefinition definition : description.findProperties()) {
+      String name = definition.getName();
+      boolean writeOnly = !definition.couldSerialize();
+      if (name.equals(skipped)
+          || ignored.contains(name)
+          || (included != null && !included.contains(name))
+          || (writeOnly && !definition.couldDeserialize())
+          || isIgnoredType(definition.getRawPrimaryType())) {
+        continue;
+      }
+      AnnotatedMember accessor = writeOnly ? definition.getMutator() : definition.getAccessor();
+      if (accessor == null && definition.getConstructorParameter() != null) {
+        accessor = definition.getConstructorParameter();
+      }
+      if (accessor == null) {
+        continue;
+      }
+      var unwrapping =
+          context.getAnnotationIntrospector().findUnwrappingNameTransformer(config, accessor);
+      if (unwrapping != null && writeOnly) {
+        continue; // Jackson's creator-side twin of an unwrapped property, e.g. "@JsonUnwrapped/1"
+      }
+      if (unwrapping != null) {
+        Class<?> nested = definition.getRawPrimaryType();
+        var nestedDescription = context.introspectBeanDescription(context.constructType(nested));
+        for (Property inner : properties(nested, nestedDescription, null, where + "." + name)) {
+          properties.add(
+              new Property(unwrapping.transform(inner.name()), inner.type(), inner.optional()));
+        }
+        continue;
+      }
+      JsonInclude.Include inclusion =
+          writeOnly // never written, so no inclusion rule applies; it becomes optional below
+              ? JsonInclude.Include.ALWAYS
+              : classInclusion.withOverrides(definition.findInclusion()).getValueInclusion();
+      Property property = property(type, definition, accessor, inclusion, where);
+      if (writeOnly) {
+        property = new Property(property.name(), unwrapNull(property.type()), true);
+      }
+      properties.add(property);
+    }
+    return properties;
+  }
+
+  private boolean isIgnoredType(Class<?> type) {
+    Boolean ignored =
+        context
+            .getAnnotationIntrospector()
+            .isIgnorableType(context.getConfig(), context.introspectClassAnnotations(type));
+    return Boolean.TRUE.equals(ignored);
+  }
+
+  private static TypeRef unwrapNull(TypeRef type) {
+    return type instanceof TypeRef.OrNull orNull ? orNull.type() : type;
   }
 
   /**
@@ -397,15 +464,21 @@ public final class TypeReader {
    * rule: with {@code NON_NULL} a nullable value is left out instead of written as {@code null}.
    */
   private Property property(
-      Class<?> owner, BeanPropertyDefinition definition, JsonInclude.Include inclusion) {
-    Member member = definition.getAccessor().getMember();
-    String path = owner.getSimpleName() + "." + definition.getName();
+      Class<?> owner,
+      BeanPropertyDefinition definition,
+      AnnotatedMember accessor,
+      JsonInclude.Include inclusion,
+      String where) {
+    Member member = accessor.getMember();
+    String path = where + "." + definition.getName();
+    AnnotatedElement element = accessorElement(accessor);
     TypeRef type =
         read(
-            annotatedType(member),
-            (AnnotatedElement) member,
+            accessorType(accessor),
+            element,
             path,
             Generics.bindings(owner, member.getDeclaringClass()));
+    type = withFormat(type, accessor);
     boolean isOptional = Optional.class.isAssignableFrom(definition.getRawPrimaryType());
     boolean omitted =
         switch (inclusion) {
@@ -414,16 +487,50 @@ public final class TypeReader {
           case NON_EMPTY, NON_DEFAULT, CUSTOM -> true;
           case ALWAYS, USE_DEFAULTS -> false;
         };
-    if (omitted && type instanceof TypeRef.OrNull orNull) {
-      type = orNull.type();
+    if (omitted) {
+      type = unwrapNull(type);
     }
     return new Property(definition.getName(), type, omitted);
   }
 
-  private static AnnotatedType annotatedType(Member member) {
-    if (member instanceof Method method) {
-      return method.getAnnotatedReturnType();
+  /** {@code @JsonFormat(shape = STRING)} writes numbers, booleans and enums as strings. */
+  private TypeRef withFormat(TypeRef type, AnnotatedMember accessor) {
+    var format = context.getAnnotationIntrospector().findFormat(context.getConfig(), accessor);
+    if (format == null
+        || format.getShape() != com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING) {
+      return type;
     }
-    return ((Field) member).getAnnotatedType();
+    TypeRef base = unwrapNull(type);
+    boolean scalar =
+        base.equals(TypeRef.NUMBER)
+            || base.equals(TypeRef.BOOLEAN)
+            || (base instanceof TypeRef.Named named && isEnum(named.name()));
+    if (!scalar) {
+      return type;
+    }
+    return type instanceof TypeRef.OrNull ? TypeRef.nullable(TypeRef.STRING) : TypeRef.STRING;
+  }
+
+  /** The reflective element behind an accessor: a method, a field or a constructor parameter. */
+  private static AnnotatedElement accessorElement(AnnotatedMember accessor) {
+    if (accessor instanceof tools.jackson.databind.introspect.AnnotatedParameter parameter) {
+      Member owner = parameter.getOwner().getMember();
+      return ((java.lang.reflect.Executable) owner).getParameters()[parameter.getIndex()];
+    }
+    return (AnnotatedElement) accessor.getMember();
+  }
+
+  /** The declared type of an accessor: a getter's return type, a field's, or a parameter's. */
+  private static AnnotatedType accessorType(AnnotatedMember accessor) {
+    AnnotatedElement element = accessorElement(accessor);
+    if (element instanceof java.lang.reflect.Parameter parameter) {
+      return parameter.getAnnotatedType();
+    }
+    if (element instanceof Method method) {
+      return method.getParameterCount() == 1
+          ? method.getAnnotatedParameterTypes()[0] // a setter
+          : method.getAnnotatedReturnType();
+    }
+    return ((Field) element).getAnnotatedType();
   }
 }
