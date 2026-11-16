@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by hand: one goal doesn't justify generating the descriptor. -->
+<plugin>
+  <name>RecordBridge Maven Plugin</name>
+  <description>Generates TypeScript types and Angular services from Spring Boot controllers and Java records.</description>
+  <groupId>io.github.brunogutierre.recordbridge</groupId>
+  <artifactId>recordbridge-maven-plugin</artifactId>
+  <version>@version@</version>
+  <goalPrefix>recordbridge</goalPrefix>
+  <isolatedRealm>false</isolatedRealm>
+  <inheritedByDefault>true</inheritedByDefault>
+  <requiredJavaVersion>17</requiredJavaVersion>
+  <requiredMavenVersion>3.9.0</requiredMavenVersion>
+  <mojos>
+    <mojo>
+      <goal>generate</goal>
+      <description>Reads the compiled controllers and writes the Angular API layer.</description>
+      <requiresDependencyResolution>runtime</requiresDependencyResolution>
+      <requiresProject>true</requiresProject>
+      <phase>process-classes</phase>
+      <implementation>io.github.brunogutierre.recordbridge.maven.GenerateMojo</implementation>
+      <language>java</language>
+      <instantiationStrategy>per-lookup</instantiationStrategy>
+      <executionStrategy>once-per-session</executionStrategy>
+      <threadSafe>true</threadSafe>
+      <parameters>
+        <parameter>
+          <name>project</name>
+          <type>org.apache.maven.project.MavenProject</type>
+          <required>true</required>
+          <editable>false</editable>
+          <description>The project being built.</description>
+        </parameter>
+        <parameter>
+          <name>classesDirectory</name>
+          <type>java.io.File</type>
+          <required>true</required>
+          <editable>true</editable>
+          <description>The compiled application classes.</description>
+        </parameter>
+        <parameter>
+          <name>outputDirectory</name>
+          <type>java.io.File</type>
+          <required>true</required>
+          <editable>true</editable>
+          <description>Where the TypeScript files go.</description>
+        </parameter>
+        <parameter>
+          <name>basePackages</name>
+          <type>java.util.List</type>
+          <required>false</required>
+          <editable>true</editable>
+          <description>The packages whose classes are read, with their subpackages; empty reads every class.</description>
+        </parameter>
+        <parameter>
+          <name>unmarkedNullness</name>
+          <type>java.lang.String</type>
+          <required>true</required>
+          <editable>true</editable>
+          <description>NON_NULL or NULLABLE, for types outside @NullMarked code.</description>
+        </parameter>
+        <parameter>
+          <name>skip</name>
+          <type>boolean</type>
+          <required>false</required>
+          <editable>true</editable>
+          <description>Skips the generation.</description>
+        </parameter>
+      </parameters>
+      <configuration>
+        <project implementation="org.apache.maven.project.MavenProject" default-value="${project}"/>
+        <classesDirectory implementation="java.io.File" default-value="${project.build.outputDirectory}"/>
+        <outputDirectory implementation="java.io.File" default-value="${project.build.directory}/recordbridge">${recordbridge.outputDirectory}</outputDirectory>
+        <unmarkedNullness implementation="java.lang.String" default-value="NON_NULL">${recordbridge.unmarkedNullness}</unmarkedNullness>
+        <skip implementation="boolean" default-value="false">${recordbridge.skip}</skip>
+      </configuration>
+    </mojo>
+  </mojos>
+</plugin>
