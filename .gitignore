@@ -1,0 +1,28 @@
+# Claude configuration and local-only files (never pushed)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+manual/
+BUSINESS.md
+
+# Build output
+build/
+out/
+target/
+.gradle/
+dist/
+node_modules/
+.angular/
+coverage/
+
+# IDEs and OS
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# Env
+.env
+.env.*
+!.env.example
