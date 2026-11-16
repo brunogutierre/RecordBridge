@@ -36,10 +36,11 @@ jobs:
           node-version: '24'
           cache: npm
 
-      - name: Type-check generated TypeScript (golden files)
+      - name: Type-check and test generated TypeScript (golden files)
         run: |
           npm ci
           npm run check:ts
+          npm run test:ts
 
       - name: Upload test reports
         if: failure()

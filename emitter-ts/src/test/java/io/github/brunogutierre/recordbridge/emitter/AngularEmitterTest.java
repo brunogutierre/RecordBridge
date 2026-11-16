@@ -21,7 +21,12 @@ class AngularEmitterTest {
   void writesTheWholeApiLayer() {
     assertThat(files)
         .containsOnlyKeys(
-            "models.ts", "api-config.ts", "file-store.api.ts", "order.api.ts", "index.ts");
+            "models.ts",
+            "api-config.ts",
+            "chat.api.ts",
+            "file-store.api.ts",
+            "order.api.ts",
+            "index.ts");
   }
 
   @Test

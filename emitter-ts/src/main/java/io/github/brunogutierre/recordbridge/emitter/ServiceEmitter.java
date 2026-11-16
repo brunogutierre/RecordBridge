@@ -179,7 +179,13 @@ public final class ServiceEmitter {
       helpers.add("httpHeaders");
       requestOptions.add("headers: httpHeaders(" + values(headers, optionsName) + ")");
     }
-    if (endpoint.response() instanceof Response.Text) {
+    boolean stream = endpoint.response() instanceof Response.EventStream;
+    if (stream) {
+      helpers.add("sseEvents");
+      requestOptions.add("observe: 'events'");
+      requestOptions.add("reportProgress: true");
+    }
+    if (endpoint.response() instanceof Response.Text || stream) {
       requestOptions.add("responseType: 'text'");
     }
 
@@ -196,8 +202,11 @@ public final class ServiceEmitter {
         .append("): Observable<")
         .append(result)
         .append("> {\n");
-    out.append("    return this.http.request")
-        .append(endpoint.response() instanceof Response.Text ? "" : "<" + result + ">")
+    out.append(
+            stream
+                ? "    return sseEvents<" + result + ">(this.http.request"
+                : "    return this.http.request")
+        .append(endpoint.response() instanceof Response.Text || stream ? "" : "<" + result + ">")
         .append("('")
         .append(endpoint.method())
         .append("', ")
@@ -207,7 +216,7 @@ public final class ServiceEmitter {
       requestOptions.forEach(o -> out.append("      ").append(o).append(",\n"));
       out.append("    }");
     }
-    out.append(");\n  }\n");
+    out.append(stream ? "));\n  }\n" : ");\n  }\n");
     return out.toString();
   }
 
@@ -290,8 +299,9 @@ public final class ServiceEmitter {
     if (response instanceof Response.Text) {
       return "string";
     }
-    if (response instanceof Response.EventStream) {
-      throw new IllegalArgumentException("event streams are not supported yet");
+    if (response instanceof Response.EventStream stream) {
+      collect(stream.event(), models);
+      return Ts.type(stream.event());
     }
     return "void";
   }

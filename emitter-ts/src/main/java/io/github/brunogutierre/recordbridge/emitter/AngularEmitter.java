@@ -36,21 +36,70 @@ public final class AngularEmitter {
 
   private static String config(boolean errors) {
     var out = new StringBuilder(ModelsEmitter.HEADER).append('\n');
+    String http =
+        errors
+            ? "HttpErrorResponse, HttpEventType, HttpHeaders, HttpParams, type HttpEvent"
+            : "HttpEventType, HttpHeaders, HttpParams, type HttpEvent";
+    out.append("import { ").append(http).append(" } from '@angular/common/http';\n");
+    out.append("import { InjectionToken } from '@angular/core';\n");
+    out.append("import { Observable } from 'rxjs';\n");
     if (errors) {
-      out.append(
-          "import { HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';\n");
-      out.append("import { InjectionToken } from '@angular/core';\n");
       out.append("import type { ApiError } from './models';\n");
-    } else {
-      out.append("import { HttpHeaders, HttpParams } from '@angular/common/http';\n");
-      out.append("import { InjectionToken } from '@angular/core';\n");
     }
-    out.append(HELPERS);
+    out.append(HELPERS).append(SSE);
     if (errors) {
       out.append(API_ERROR);
     }
     return out.toString();
   }
+
+  private static final String SSE =
+      """
+
+      /**
+       * Turns a `text/event-stream` response, requested with `observe: 'events'` and
+       * `reportProgress: true`, into the JSON data of its events, emitted as they arrive.
+       * Going through HttpClient keeps interceptors (authentication) and allows POST, which
+       * `EventSource` doesn't. Unsubscribing cancels the request.
+       */
+      export function sseEvents<T>(events: Observable<HttpEvent<string>>): Observable<T> {
+        return new Observable<T>((subscriber) => {
+          let seen = 0;
+          let buffer = '';
+          const read = (text: string, final: boolean) => {
+            buffer += text.slice(seen);
+            seen = text.length;
+            const blocks = buffer.split(/\\r?\\n\\r?\\n/);
+            buffer = final ? '' : (blocks.pop() ?? '');
+            for (const block of blocks) {
+              const data = block
+                .split(/\\r?\\n/)
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5))
+                .join('\\n');
+              if (data !== '') {
+                subscriber.next(JSON.parse(data) as T);
+              }
+            }
+          };
+          return events.subscribe({
+            next: (event) => {
+              try {
+                if (event.type === HttpEventType.DownloadProgress && event.partialText !== undefined) {
+                  read(event.partialText, false);
+                } else if (event.type === HttpEventType.Response) {
+                  read(event.body ?? '', true);
+                  subscriber.complete();
+                }
+              } catch (error: unknown) {
+                subscriber.error(error);
+              }
+            },
+            error: (error: unknown) => subscriber.error(error),
+          });
+        });
+      }
+      """;
 
   private static final String HELPERS =
       """

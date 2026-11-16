@@ -75,6 +75,18 @@ final class SampleApi {
                     "/api/orders/{id}",
                     List.of(new Param("id", "id", Kind.PATH, NUMBER, true)),
                     Response.EMPTY)));
+    var chat =
+        new Controller(
+            "ChatApi",
+            List.of(
+                new Endpoint(
+                    "ask",
+                    HttpMethod.POST,
+                    "/api/chat/{room}",
+                    List.of(
+                        new Param("room", "room", Kind.PATH, STRING, true),
+                        new Param("question", "question", Kind.BODY, STRING, true)),
+                    new Response.EventStream(Named.of("Shape")))));
     var files =
         new Controller(
             "FileStoreApi",
@@ -99,7 +111,7 @@ final class SampleApi {
             List.of(Property.required("fields", new TypeRef.MapOf(STRING, STRING)))));
     return new ApiModel(
         types,
-        List.of(orders, files),
+        List.of(orders, files, chat),
         List.of(Named.of("ProblemDetail"), Named.of("ValidationErrors")));
   }
 }
