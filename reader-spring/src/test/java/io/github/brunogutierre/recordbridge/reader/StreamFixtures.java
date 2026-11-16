@@ -35,6 +35,11 @@ final class StreamFixtures {
       return Flux.empty();
     }
 
+    @GetMapping(path = "/tokens", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> tokens() {
+      return Flux.empty();
+    }
+
     @GetMapping("/numbers")
     public Flux<Integer> numbers() {
       return Flux.empty();

@@ -3,8 +3,8 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { Observable } from 'rxjs';
-import { API_BASE_URL, sseEvents } from './api-config';
-import type { Shape } from './models';
+import { API_BASE_URL, httpHeaders, sseEvents } from './api-config';
+import type { Order, Shape, Status } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ChatApi {
@@ -14,10 +14,28 @@ export class ChatApi {
   /** POST /api/chat/{room} */
   ask(room: string, question: string): Observable<Shape> {
     return sseEvents<Shape>(this.http.request('POST', `${this.baseUrl}/api/chat/${encodeURIComponent(String(room))}`, {
-      body: question,
+      body: JSON.stringify(question),
+      headers: httpHeaders({ 'Content-Type': 'application/json' }),
       observe: 'events',
       reportProgress: true,
       responseType: 'text',
     }));
+  }
+
+  /** GET /api/chat/tokens */
+  tokens(): Observable<string> {
+    return sseEvents<string>(this.http.request('GET', `${this.baseUrl}/api/chat/tokens`, {
+      observe: 'events',
+      reportProgress: true,
+      responseType: 'text',
+    }), false);
+  }
+
+  /** PUT /api/chat/{code:[a-z]{3}}/status`$ */
+  setStatus(code: string, status: Status): Observable<Order | null> {
+    return this.http.request<Order | null>('PUT', `${this.baseUrl}/api/chat/${encodeURIComponent(String(code))}/status\`$`, {
+      body: JSON.stringify(status),
+      headers: httpHeaders({ 'Content-Type': 'application/json' }),
+    });
   }
 }

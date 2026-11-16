@@ -80,6 +80,30 @@ class AngularEmitterTest {
   }
 
   @Test
+  void sendsStringJsonBodiesAsJson() {
+    assertThat(files.get("chat.api.ts"))
+        .contains("body: JSON.stringify(status),")
+        .contains("headers: httpHeaders({ 'Content-Type': 'application/json' }),");
+    assertThat(files.get("order.api.ts"))
+        .contains("body: note,")
+        .doesNotContain("JSON.stringify(note)");
+  }
+
+  @Test
+  void escapesPathTextAndKeepsRegexBraces() {
+    assertThat(files.get("chat.api.ts"))
+        .contains("/api/chat/${encodeURIComponent(String(code))}/status\\`$`");
+    assertThat(ServiceEmitter.templateText("a\\b`c${d}")).isEqualTo("a\\\\b\\`c\\${d}");
+  }
+
+  @Test
+  void textStreamsAreNotParsedAsJson() {
+    assertThat(files.get("chat.api.ts"))
+        .contains("tokens(): Observable<string>")
+        .contains("), false);");
+  }
+
+  @Test
   void escapesReservedParameterNames() {
     assertThat(ServiceEmitter.safe("in")).isEqualTo("in_");
     assertThat(ServiceEmitter.safe("id")).isEqualTo("id");

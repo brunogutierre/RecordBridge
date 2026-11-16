@@ -20,6 +20,29 @@ class EndpointTest {
   }
 
   @Test
+  void readsRegexesWithBracesAndCatchAlls() {
+    assertThat(Endpoint.pathVariables("/codes/{code:[a-z]{3}}/{*rest}"))
+        .containsExactly("code", "rest");
+    assertThat(PathTemplate.parse("/a/{*rest}"))
+        .containsExactly(
+            new PathTemplate.Part("/a/", "rest", true), new PathTemplate.Part("", null, false));
+    assertThatIllegalArgumentException().isThrownBy(() -> PathTemplate.parse("/a/{id"));
+  }
+
+  @Test
+  void textBodiesAndTextStreamsCarryStrings() {
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> new Param("n", "n", Kind.TEXT_BODY, TypeRef.NUMBER, true));
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> new Response.EventStream(TypeRef.NUMBER, true));
+    assertThat(new Response.EventStream(TypeRef.NUMBER).text()).isFalse();
+    var a = new Param("a", "a", Kind.BODY, TypeRef.NUMBER, true);
+    var b = new Param("b", "b", Kind.TEXT_BODY, TypeRef.STRING, true);
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> new Endpoint("x", HttpMethod.POST, "/x", List.of(a, b), Response.EMPTY));
+  }
+
+  @Test
   void pathVariablesMustMatchPathParameters() {
     assertThatIllegalArgumentException()
         .isThrownBy(

@@ -38,3 +38,12 @@ test('accepts CRLF line endings and a last event without a blank line', async ()
 test('fails the stream on invalid JSON', async () => {
   await assert.rejects(stream(['data:{oops\n\n']), SyntaxError);
 });
+
+test('passes text data through when json is false', async () => {
+  const events = new Subject<HttpEvent<string>>();
+  const result = lastValueFrom(sseEvents<string>(events, false).pipe(toArray()));
+  const text = 'data:Hel\n\ndata:lo "world"\n\n';
+  events.next({ type: HttpEventType.DownloadProgress, loaded: text.length, partialText: text });
+  events.next(new HttpResponse({ body: text }));
+  assert.deepEqual(await result, ['Hel', 'lo "world"']);
+});

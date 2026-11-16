@@ -4,6 +4,7 @@ import io.github.brunogutierre.recordbridge.model.Controller;
 import io.github.brunogutierre.recordbridge.model.Endpoint;
 import io.github.brunogutierre.recordbridge.model.HttpMethod;
 import io.github.brunogutierre.recordbridge.model.Param;
+import io.github.brunogutierre.recordbridge.model.PathTemplate;
 import io.github.brunogutierre.recordbridge.model.Response;
 import io.github.brunogutierre.recordbridge.model.TypeRef;
 import java.util.ArrayList;
@@ -11,8 +12,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 
@@ -25,7 +24,20 @@ import org.jspecify.annotations.Nullable;
  */
 public final class ServiceEmitter {
 
-  private static final Pattern PATH_VARIABLE = Pattern.compile("\\{(\\*?)([^}:]+)(?::[^}]*)?}");
+  private final Set<String> enums;
+
+  /** An emitter for a model without enums. */
+  public ServiceEmitter() {
+    this(Set.of());
+  }
+
+  /**
+   * An emitter that knows which named types are enums: a JSON body whose TypeScript type is a
+   * string (an enum, a UUID, a date) must be sent as JSON, not as plain text.
+   */
+  public ServiceEmitter(Set<String> enums) {
+    this.enums = Set.copyOf(enums);
+  }
 
   /** Words that can't name a parameter in strict-mode TypeScript. */
   private static final Set<String> RESERVED =
@@ -129,14 +141,14 @@ public final class ServiceEmitter {
     return out.toString();
   }
 
-  private static String method(Endpoint endpoint, Set<String> models, Set<String> helpers) {
+  private String method(Endpoint endpoint, Set<String> models, Set<String> helpers) {
     var path = new ArrayList<Param>();
     @Nullable Param body = null;
     var options = new ArrayList<Param>();
     for (Param param : endpoint.params()) {
       switch (param.kind()) {
         case PATH -> path.add(param);
-        case BODY -> body = param;
+        case BODY, TEXT_BODY -> body = param;
         case QUERY, HEADER -> options.add(param);
       }
       collect(param.type(), models);
@@ -166,18 +178,28 @@ public final class ServiceEmitter {
     }
 
     var requestOptions = new ArrayList<String>();
+    var headerValues = new ArrayList<String>();
     if (body != null) {
-      requestOptions.add("body: " + safe(body.name()));
+      // Angular sends a string body as text/plain, which only Spring's String converter reads.
+      boolean jsonString = body.kind() == Param.Kind.BODY && isString(body.type());
+      if (jsonString) {
+        requestOptions.add("body: JSON.stringify(" + safe(body.name()) + ")");
+        headerValues.add("'Content-Type': 'application/json'");
+      } else {
+        requestOptions.add("body: " + safe(body.name()));
+      }
     }
     List<Param> query = options.stream().filter(p -> p.kind() == Param.Kind.QUERY).toList();
-    List<Param> headers = options.stream().filter(p -> p.kind() == Param.Kind.HEADER).toList();
+    options.stream()
+        .filter(p -> p.kind() == Param.Kind.HEADER)
+        .forEach(p -> headerValues.add(Ts.key(p.wireName()) + ": " + optionsName + "." + p.name()));
     if (!query.isEmpty()) {
       helpers.add("httpParams");
       requestOptions.add("params: httpParams(" + values(query, optionsName) + ")");
     }
-    if (!headers.isEmpty()) {
+    if (!headerValues.isEmpty()) {
       helpers.add("httpHeaders");
-      requestOptions.add("headers: httpHeaders(" + values(headers, optionsName) + ")");
+      requestOptions.add("headers: httpHeaders({ " + String.join(", ", headerValues) + " })");
     }
     boolean stream = endpoint.response() instanceof Response.EventStream;
     if (stream) {
@@ -216,8 +238,17 @@ public final class ServiceEmitter {
       requestOptions.forEach(o -> out.append("      ").append(o).append(",\n"));
       out.append("    }");
     }
-    out.append(stream ? "));\n  }\n" : ");\n  }\n");
+    boolean textStream =
+        endpoint.response() instanceof Response.EventStream events && events.text();
+    out.append(stream ? (textStream ? "), false);\n  }\n" : "));\n  }\n") : ");\n  }\n");
     return out.toString();
+  }
+
+  /** Whether a type is written as a JSON string: a string or an enum, possibly nullable. */
+  private boolean isString(TypeRef type) {
+    TypeRef base = type instanceof TypeRef.OrNull orNull ? orNull.type() : type;
+    return base.equals(TypeRef.STRING)
+        || (base instanceof TypeRef.Named named && enums.contains(named.name()));
   }
 
   /** GETs that return JSON or text, without a body, also get a reactive resource factory. */
@@ -225,7 +256,7 @@ public final class ServiceEmitter {
     return endpoint.method() == HttpMethod.GET
         && (endpoint.response() instanceof Response.Json
             || endpoint.response() instanceof Response.Text)
-        && endpoint.params().stream().noneMatch(p -> p.kind() == Param.Kind.BODY);
+        && endpoint.params().stream().noneMatch(p -> p.kind().isBody());
   }
 
   /**
@@ -306,25 +337,30 @@ public final class ServiceEmitter {
     return "void";
   }
 
-  /** The URL template literal, with each path variable encoded. */
+  /** The URL template literal, with each path variable encoded and the literal text escaped. */
   private static String url(String path, List<Param> params, Function<Param, String> value) {
-    Matcher matcher = PATH_VARIABLE.matcher(path);
     var out = new StringBuilder("`${this.baseUrl}");
-    int last = 0;
-    while (matcher.find()) {
-      out.append(path, last, matcher.start());
-      String wireName = matcher.group(2);
+    for (PathTemplate.Part part : PathTemplate.parse(path)) {
+      out.append(templateText(part.literal()));
+      String variable = part.variable();
+      if (variable == null) {
+        continue;
+      }
       Param param =
           params.stream()
-              .filter(p -> p.kind() == Param.Kind.PATH && p.wireName().equals(wireName))
+              .filter(p -> p.kind() == Param.Kind.PATH && p.wireName().equals(variable))
               .findFirst()
               .orElseThrow();
       // A catch-all {*rest} keeps its slashes.
-      String encode = matcher.group(1).isEmpty() ? "encodeURIComponent" : "encodeURI";
+      String encode = part.catchAll() ? "encodeURI" : "encodeURIComponent";
       out.append("${").append(encode).append("(String(").append(value.apply(param)).append("))}");
-      last = matcher.end();
     }
-    return out.append(path.substring(last)).append('`').toString();
+    return out.append('`').toString();
+  }
+
+  /** Escapes text for a template literal: backslashes, backticks and {@code ${}. */
+  static String templateText(String text) {
+    return text.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${");
   }
 
   private static String values(List<Param> params, String optionsName) {

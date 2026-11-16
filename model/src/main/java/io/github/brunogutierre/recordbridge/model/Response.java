@@ -19,6 +19,23 @@ public sealed interface Response
   /** No body. */
   record Empty() implements Response {}
 
-  /** A stream of server-sent events whose data is JSON of the given type. */
-  record EventStream(TypeRef event) implements Response {}
+  /**
+   * A stream of server-sent events.
+   *
+   * @param event the type of each event's data
+   * @param text whether the data is plain text (Spring writes {@code String} data as is) rather
+   *     than JSON
+   */
+  record EventStream(TypeRef event, boolean text) implements Response {
+    public EventStream {
+      if (text && !event.equals(TypeRef.STRING)) {
+        throw new IllegalArgumentException("a text event stream carries strings");
+      }
+    }
+
+    /** A stream of JSON events. */
+    public EventStream(TypeRef event) {
+      this(event, false);
+    }
+  }
 }

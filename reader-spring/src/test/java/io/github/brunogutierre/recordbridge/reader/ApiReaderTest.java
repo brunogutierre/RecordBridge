@@ -106,7 +106,7 @@ class ApiReaderTest {
                     new Param("requestId", "X-Request-Id", Kind.HEADER, TypeRef.STRING, true)),
                 new Response.Json(ORDER)));
     assertThat(endpoint("note").params())
-        .contains(new Param("note", "note", Kind.BODY, TypeRef.STRING, false));
+        .contains(new Param("note", "note", Kind.TEXT_BODY, TypeRef.STRING, false));
   }
 
   @Test
@@ -126,7 +126,8 @@ class ApiReaderTest {
 
   @Test
   void nullableResultsAreStillJson() {
-    assertThat(endpoint("expanded").response()).isEqualTo(new Response.Json(ORDER));
+    assertThat(endpoint("expanded").response())
+        .isEqualTo(new Response.Json(new TypeRef.OrNull(ORDER)));
     assertThat(endpoint("expanded").params()).contains(query("expand", TypeRef.STRING, false));
   }
 

@@ -16,7 +16,15 @@ public record Param(String name, String wireName, Kind kind, TypeRef type, boole
     PATH,
     QUERY,
     HEADER,
-    BODY
+    /** A JSON body. */
+    BODY,
+    /** A {@code String} body, which Spring reads as plain text. */
+    TEXT_BODY;
+
+    /** Whether the parameter is the request body. */
+    public boolean isBody() {
+      return this == BODY || this == TEXT_BODY;
+    }
   }
 
   public Param {
@@ -24,6 +32,9 @@ public record Param(String name, String wireName, Kind kind, TypeRef type, boole
     Names.requireNotBlank(wireName, "parameter wire name");
     if (kind == Kind.PATH && !required) {
       throw new IllegalArgumentException("path parameter " + name + " must be required");
+    }
+    if (kind == Kind.TEXT_BODY && !type.equals(TypeRef.STRING)) {
+      throw new IllegalArgumentException("text body " + name + " must be a string");
     }
   }
 }
