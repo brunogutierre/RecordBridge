@@ -8,6 +8,7 @@ BUSINESS.md
 # Build output
 build/
 out/
+bin/
 target/
 .gradle/
 .kotlin/

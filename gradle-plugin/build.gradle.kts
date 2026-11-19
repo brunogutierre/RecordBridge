@@ -3,6 +3,8 @@ plugins {
     `java-gradle-plugin`
 }
 
+description = "Gradle plugin that generates TypeScript types and Angular services from a Spring Boot API."
+
 dependencies {
     implementation(project(":generator"))
 }

@@ -3,6 +3,8 @@ plugins {
     id("recordbridge.published")
 }
 
+description = "Scans compiled classes and writes the Angular API layer; used by the build plugins."
+
 dependencies {
     api(project(":reader-spring"))
     api(project(":emitter-ts"))
