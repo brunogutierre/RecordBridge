@@ -1,13 +1,17 @@
 plugins {
     id("recordbridge.java-library")
-    `java-gradle-plugin`
+    alias(libs.plugins.plugin.publish)
 }
+
+description = "Gradle plugin that generates TypeScript types and Angular services from a Spring Boot API."
 
 dependencies {
     implementation(project(":generator"))
 }
 
 gradlePlugin {
+    website = "https://github.com/brunogutierre/RecordBridge"
+    vcsUrl = "https://github.com/brunogutierre/RecordBridge"
     plugins {
         create("recordBridge") {
             id = "io.github.brunogutierre.recordbridge"
@@ -15,7 +19,15 @@ gradlePlugin {
             displayName = "RecordBridge"
             description =
                 "Generates TypeScript types and Angular services from Spring Boot controllers and Java records."
+            tags = listOf("typescript", "angular", "spring-boot", "code-generation", "jackson")
         }
+    }
+}
+
+publishing.publications.withType<MavenPublication>().configureEach {
+    // The Plugin Portal hosts the plugin jar; its dependencies come from Maven Central.
+    if (name == "pluginMaven") {
+        artifactId = "recordbridge-gradle-plugin"
     }
 }
 

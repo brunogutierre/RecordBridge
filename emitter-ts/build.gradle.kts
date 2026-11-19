@@ -3,6 +3,8 @@ plugins {
     id("recordbridge.published")
 }
 
+description = "Emits TypeScript types and Angular services from the RecordBridge model."
+
 dependencies {
     api(project(":model"))
 }

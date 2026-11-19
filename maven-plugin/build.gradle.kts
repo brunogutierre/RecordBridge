@@ -3,6 +3,8 @@ plugins {
     id("recordbridge.published")
 }
 
+description = "Maven plugin that generates TypeScript types and Angular services from a Spring Boot API."
+
 val mavenDistribution = configurations.create("mavenDistribution")
 
 dependencies {

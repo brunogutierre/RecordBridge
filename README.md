@@ -143,7 +143,7 @@ npm run test:ts                             # runtime tests of generated helpers
 
 | Path | Purpose |
 |---|---|
-| `build-logic/` | Convention plugin `recordbridge.java-library`: toolchain, `--release 17`, `-parameters`, `-Werror`, JUnit, JaCoCo, Spotless |
+| `build-logic/` | Convention plugins `recordbridge.java-library` and `recordbridge.published` (POM, sources/javadoc jars, staging repository); `java-library` sets the toolchain, `--release 17`, `-parameters`, `-Werror`, JUnit, JaCoCo, Spotless |
 | `gradle/libs.versions.toml` | Version catalog shared by the build and `build-logic` |
 | `model/` | Intermediate model (no dependencies besides JSpecify annotations) |
 | `reader-spring/` | Compiled Spring classes → model |
@@ -153,6 +153,25 @@ npm run test:ts                             # runtime tests of generated helpers
 | `maven-plugin/` | `recordbridge:generate` goal, tested by running a real Maven build |
 
 The Maven plugin tests publish every module to `build/test-repo` and unpack a Maven distribution first; both happen automatically in `./gradlew build` (network access needed).
+
+## Releasing
+
+A tag `v<major>.<minor>.<patch>` on `main` runs [`release.yml`](.github/workflows/release.yml):
+
+1. `./gradlew build publishAllPublicationsToStagingRepository -Pversion=<tag>`: tests, then stages every library module and the Maven plugin (jar, sources, javadoc, POM) in `build/staging-deploy`. The version comes from the tag, so `gradle.properties` keeps a `-SNAPSHOT` version and no release commit is needed.
+2. [JReleaser](https://jreleaser.org) (`jreleaser.yml`) checks the Maven Central rules, signs every file and uploads one bundle through the Central Portal API, then waits until it is published.
+3. `:gradle-plugin:publishPlugins` publishes the Gradle plugin to the Plugin Portal; its dependencies resolve from Maven Central.
+
+Why the JReleaser CLI instead of its Gradle plugin: the plugin needs JGit 5.13 and Spotless needs JGit 7, and both would share the build classpath.
+
+Repository secrets used: `CENTRAL_USERNAME`, `CENTRAL_PASSWORD` (Central Portal user token), `GPG_SECRET_KEY`, `GPG_PUBLIC_KEY`, `GPG_PASSPHRASE` (armored, key published to keyserver.ubuntu.com), `GRADLE_PUBLISH_KEY`, `GRADLE_PUBLISH_SECRET`.
+
+Dry run on a local machine, with the JReleaser CLI and the same environment variables the workflow sets:
+
+```bash
+./gradlew publishAllPublicationsToStagingRepository -Pversion=0.1.0
+jreleaser deploy --dry-run   # verifies POMs, signs and builds the bundle without uploading
+```
 
 ## License
 

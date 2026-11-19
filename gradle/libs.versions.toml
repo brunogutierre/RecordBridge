@@ -25,3 +25,4 @@ spotless-gradle = { module = "com.diffplug.spotless:spotless-plugin-gradle", ver
 
 [plugins]
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+plugin-publish = { id = "com.gradle.plugin-publish", version = "2.2.1" }

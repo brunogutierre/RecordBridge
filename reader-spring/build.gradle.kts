@@ -3,6 +3,8 @@ plugins {
     id("recordbridge.published")
 }
 
+description = "Reads Spring MVC controllers and Jackson 3 types into the RecordBridge model."
+
 dependencies {
     api(project(":model"))
 }
