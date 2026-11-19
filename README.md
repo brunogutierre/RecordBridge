@@ -158,9 +158,10 @@ The Maven plugin tests publish every module to `build/test-repo` and unpack a Ma
 
 A tag `v<major>.<minor>.<patch>` on `main` runs [`release.yml`](.github/workflows/release.yml):
 
-1. `./gradlew build publishAllPublicationsToStagingRepository -Pversion=<tag>`: tests, then stages every library module and the Maven plugin (jar, sources, javadoc, POM) in `build/staging-deploy`. The version comes from the tag, so `gradle.properties` keeps a `-SNAPSHOT` version and no release commit is needed.
-2. [JReleaser](https://jreleaser.org) (`jreleaser.yml`) checks the Maven Central rules, signs every file and uploads one bundle through the Central Portal API, then waits until it is published.
-3. `:gradle-plugin:publishPlugins` publishes the Gradle plugin to the Plugin Portal; its dependencies resolve from Maven Central.
+1. Job `maven-central`: `./gradlew build publishAllPublicationsToStagingRepository -Pversion=<tag>` tests, then stages every library module and the Maven plugin (jar, sources, javadoc, POM) in `build/staging-deploy`. The version comes from the tag, so `gradle.properties` keeps a `-SNAPSHOT` version and no release commit is needed. [JReleaser](https://jreleaser.org) (`jreleaser.yml`) then checks the Maven Central rules, signs every file, uploads one bundle through the Central Portal API and waits up to an hour for it to be published.
+2. Job `gradle-plugin`, after the first one: `:gradle-plugin:publishPlugins` publishes the Gradle plugin to the Plugin Portal; its dependencies resolve from Maven Central. A new plugin waits for manual approval by the Gradle team.
+
+If a job fails, use **Re-run failed jobs**: the jobs are separate, and `maven-central` skips the deploy when repo1 already has the version (Central rejects a second upload). The Plugin Portal step can also run locally from the tag: `GRADLE_PUBLISH_KEY=… GRADLE_PUBLISH_SECRET=… ./gradlew :gradle-plugin:publishPlugins -Pversion=<version>`.
 
 Why the JReleaser CLI instead of its Gradle plugin: the plugin needs JGit 5.13 and Spotless needs JGit 7, and both would share the build classpath.
 

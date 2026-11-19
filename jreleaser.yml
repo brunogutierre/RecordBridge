@@ -28,6 +28,9 @@ deploy:
         active: ALWAYS
         url: https://central.sonatype.com/api/v1/publisher
         applyMavenCentralRules: true
+        # Poll every 30 s for up to an hour: 0.1.0 took longer than the default 100 × 20 s.
+        retryDelay: 30
+        maxRetries: 120
         stagingRepositories:
           - build/staging-deploy
 
