@@ -31,6 +31,14 @@ dependencies {
     "testRuntimeOnly"(libs.findLibrary("junit-platform-launcher").get())
 }
 
+tasks.javadoc {
+    (options as StandardJavadocDocletOptions).apply {
+        // Check the HTML and references, but don't ask for a comment on every member.
+        addStringOption("Xdoclint:all,-missing", "-quiet")
+        addBooleanOption("Werror", true)
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
     finalizedBy(tasks.jacocoTestReport)

@@ -1,0 +1,38 @@
+# Signs the artifacts the Gradle build staged in build/staging-deploy and uploads them to Maven
+# Central through the Central Portal. Run by the release workflow with the JReleaser CLI: the
+# JReleaser Gradle plugin needs an older JGit than Spotless and can't share their classpath.
+# Version, credentials and keys come from JRELEASER_* environment variables.
+project:
+  name: recordbridge
+  description: Generates TypeScript types and Angular services from Spring Boot controllers.
+  authors:
+    - Bruno Gutierre
+  license: Apache-2.0
+  inceptionYear: '2026'
+  links:
+    homepage: https://github.com/brunogutierre/RecordBridge
+  languages:
+    java:
+      groupId: io.github.brunogutierre.recordbridge
+
+signing:
+  active: ALWAYS
+  pgp:
+    active: ALWAYS
+    armored: true
+
+deploy:
+  maven:
+    mavenCentral:
+      sonatype:
+        active: ALWAYS
+        url: https://central.sonatype.com/api/v1/publisher
+        applyMavenCentralRules: true
+        stagingRepositories:
+          - build/staging-deploy
+
+release:
+  github:
+    # The workflow only deploys; GitHub releases are written by hand from the tag.
+    skipRelease: true
+    skipTag: true
