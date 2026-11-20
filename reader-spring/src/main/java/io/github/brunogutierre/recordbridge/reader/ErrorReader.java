@@ -7,13 +7,11 @@ import java.lang.reflect.AnnotatedType;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.MergedAnnotations;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.ErrorResponse;
@@ -67,8 +65,8 @@ final class ErrorReader {
   }
 
   private static List<Method> handlers(Class<?> type) {
-    return Arrays.stream(type.getMethods())
-        .filter(m -> AnnotatedElementUtils.hasAnnotation(m, ExceptionHandler.class))
+    // Any visibility, as Spring's ExceptionHandlerMethodResolver selects them.
+    return ApiReader.annotatedMethods(type, ExceptionHandler.class).stream()
         .sorted(Comparator.comparing(Method::getName))
         .toList();
   }
