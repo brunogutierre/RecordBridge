@@ -3,6 +3,7 @@ package io.github.brunogutierre.recordbridge.reader;
 import io.github.brunogutierre.recordbridge.model.ApiModel;
 import io.github.brunogutierre.recordbridge.model.Controller;
 import io.github.brunogutierre.recordbridge.model.Endpoint;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -10,6 +11,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import org.springframework.core.MethodIntrospector;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.annotation.MergedAnnotations;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -73,17 +76,30 @@ public final class ApiReader {
   }
 
   /**
-   * Public methods with a request mapping, sorted by name and then by parameter types, so overloads
-   * always come in the same order.
+   * Handler methods found the way Spring's {@code RequestMappingHandlerMapping} finds them: any
+   * visibility, declared on the class, a superclass or an interface, with overrides merged. Sorted
+   * by name and then by parameter types, so overloads always come in the same order.
    */
   private static List<Method> handlerMethods(Class<?> type) {
-    return Arrays.stream(type.getMethods())
-        .filter(m -> !m.isBridge() && !m.isSynthetic())
-        .filter(m -> AnnotatedElementUtils.hasAnnotation(m, RequestMapping.class))
+    return annotatedMethods(type, RequestMapping.class).stream()
         .sorted(
             Comparator.comparing(Method::getName)
                 .thenComparing(m -> Arrays.toString(m.getParameterTypes())))
         .toList();
+  }
+
+  /** The methods Spring would select for an annotation, as its handler mappings do. */
+  static Set<Method> annotatedMethods(Class<?> type, Class<? extends Annotation> annotation) {
+    return MethodIntrospector.selectMethods(
+            type,
+            (MethodIntrospector.MetadataLookup<Boolean>)
+                m ->
+                    !m.isBridge()
+                            && !m.isSynthetic()
+                            && AnnotatedElementUtils.hasAnnotation(m, annotation)
+                        ? Boolean.TRUE
+                        : null)
+        .keySet();
   }
 
   /**
