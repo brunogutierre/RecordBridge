@@ -51,7 +51,7 @@ After:
 <plugin>
   <groupId>io.github.brunogutierre.recordbridge</groupId>
   <artifactId>recordbridge-maven-plugin</artifactId>
-  <version>0.1.0</version>
+  <version>0.1.1</version>
   <executions>
     <execution>
       <goals><goal>generate</goal></goals>  <!-- process-classes by default -->
@@ -70,7 +70,7 @@ Replace the `cz.habarta.typescript-generator` plugin and its `generateTypeScript
 
 ```kotlin
 plugins {
-    id("io.github.brunogutierre.recordbridge") version "0.1.0"
+    id("io.github.brunogutierre.recordbridge") version "0.1.1"
 }
 
 recordBridge {

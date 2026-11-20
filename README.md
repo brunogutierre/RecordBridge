@@ -7,8 +7,7 @@
 
 Generate TypeScript types and modern Angular services straight from your Spring Boot controllers and Java records. No OpenAPI step, no hand-written DTO mirrors, no drift.
 
-> **0.1.0 is out** on Maven Central (libraries and Maven plugin) and on the Gradle Plugin Portal.
-> Known issue in 0.1.0: controller and `@ExceptionHandler` methods that aren't `public` are skipped. It is fixed on `main` and ships in 0.1.1; until then, make handler methods `public`.
+> **0.1.1 is out** on Maven Central (libraries and Maven plugin) and on the Gradle Plugin Portal.
 
 ## Why
 
@@ -54,7 +53,7 @@ export class ShapeApi {
 plugins {
     java
     id("org.springframework.boot") version "4.1.2"
-    id("io.github.brunogutierre.recordbridge") version "0.1.0"
+    id("io.github.brunogutierre.recordbridge") version "0.1.1"
 }
 
 recordBridge {
@@ -79,7 +78,7 @@ recordBridge {
 <plugin>
   <groupId>io.github.brunogutierre.recordbridge</groupId>
   <artifactId>recordbridge-maven-plugin</artifactId>
-  <version>0.1.0</version>
+  <version>0.1.1</version>
   <executions>
     <execution>
       <goals><goal>generate</goal></goals>  <!-- bound to process-classes -->
