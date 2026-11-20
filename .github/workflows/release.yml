@@ -56,6 +56,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         if: steps.central.outputs.published != 'true'
 
+      - name: Cache what the Maven plugin tests download
+        if: steps.central.outputs.published != 'true'
+        uses: actions/cache@v6
+        with:
+          # The functional tests run a real Maven build. Reusing its downloads avoids Maven
+          # Central's rate limit (HTTP 429) on shared runners. RecordBridge's own snapshots
+          # are left out: every build publishes them again.
+          path: |
+            build/maven-local-repo
+            !build/maven-local-repo/io/github/brunogutierre
+          key: maven-tests-${{ hashFiles('gradle/libs.versions.toml', 'maven-plugin/src/test/**') }}
+          restore-keys: maven-tests-
+
       - name: Build, test and stage the artifacts
         if: steps.central.outputs.published != 'true'
         run: ./gradlew build publishAllPublicationsToStagingRepository -Pversion=${{ steps.version.outputs.version }}
