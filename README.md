@@ -2,11 +2,13 @@
 
 [![CI](https://github.com/brunogutierre/RecordBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/brunogutierre/RecordBridge/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.brunogutierre.recordbridge/recordbridge-maven-plugin)](https://central.sonatype.com/namespace/io.github.brunogutierre.recordbridge)
+[![Gradle Plugin Portal](https://img.shields.io/gradle-plugin-portal/v/io.github.brunogutierre.recordbridge)](https://plugins.gradle.org/plugin/io.github.brunogutierre.recordbridge)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 Generate TypeScript types and modern Angular services straight from your Spring Boot controllers and Java records. No OpenAPI step, no hand-written DTO mirrors, no drift.
 
-> **0.1.0 is out.** The libraries and the Maven plugin are on Maven Central. The Gradle plugin is waiting for its first approval on the Gradle Plugin Portal. Until then, Gradle builds can't resolve it from the portal.
+> **0.1.0 is out** on Maven Central (libraries and Maven plugin) and on the Gradle Plugin Portal.
+> Known issue in 0.1.0: controller and `@ExceptionHandler` methods that aren't `public` are skipped. It is fixed on `main` and ships in 0.1.1; until then, make handler methods `public`.
 
 ## Why
 
